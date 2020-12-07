@@ -1,3 +1,0 @@
-# QuickScriptBackup
-
-Backup of scripts
