@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+#FILES=/mnt/DATA4/kevhu/choLab/vcfs/testingtestingNormals.vcf.gz
+FILES=/mnt/DATA4/kevhu/choLab/vcfs/20191106KcMerged.vcf.gz 
+#FILES=$1
+cd ~/programs/annovar
+
+for file in $FILES; do
+	perl convert2annovar.pl -format vcf4old --includeinfo $file > ~/tmp/mouseVars.avinput
+	#perl annotate_variation.pl --geneanno --dbtype knownGene --buildver mm10 --outfile ~/tmp/avinput2  ~/tmp/mouseVars.avinput mousedb/	
+	perl annotate_variation.pl --filter --dbtype vcf --vcfdbfile IAD124056_167_Designed_mm10_SNPs.vcf --buildver mm10 --otherinfo --outfile ~/tmp/avinput2 ~/tmp/mouseVars.avinput mousedb/
+	perl annotate_variation.pl --filter --dbtype vcf --vcfdbfile IAD124056_167_Designed_mm10_Indels.vcf --buildver mm10 --otherinfo --outfile  ~/tmp/avinput3 ~/tmp/avinput2.mm10_vcf_filtered mousedb/
+	perl annotate_variation.pl --geneanno --dbtype knownGene --buildver mm10 --otherinfo --outfile $(basename "$file")_filtAnno ~/tmp/avinput3.mm10_vcf_filtered mousedb/
+done

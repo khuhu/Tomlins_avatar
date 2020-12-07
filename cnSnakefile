@@ -1,0 +1,49 @@
+### endpoint should be the combined copy-number combined call set - need to add this in mouse script 
+
+import pandas as pd
+data = pd.read_csv("/home/kevhu/scripts/newMousePanelPipeline/mouseBedsIdx.txt", sep='\t')
+
+listOfDir = data['reports']
+#normalList = data['normals']
+#bedList = data['cnBed']
+#normIDlist = data['normalsId']
+
+rule all:
+    input:
+        expand("/home/kevhu/scripts/newMousePanelPipeline/reports/{report}/combinedCalls.txt", report = listOfDir)
+rule index:
+    input:
+        "/home/kevhu/scripts/newMousePanelPipeline/reports/{report}/tmp.txt"
+    output:
+        "/home/kevhu/scripts/newMousePanelPipeline/reports/{report}/idx.txt"
+    params:
+        #normal="/home/kevhu/data/normals/mousePanel/20191105n9.txt"
+        normal="/home/kevhu/scripts/newMousePanelPipeline/reports/{report}/normals.txt"
+    shell:
+        "/usr/bin/Rscript --slave --no-restore  /home/kevhu/scripts/newMousePanelPipeline/snakemakeRscriptIdx.R -i {input} -n {params.normal} -o {output}"
+
+rule scriptInputs:
+    input:
+        "/home/kevhu/scripts/newMousePanelPipeline/reports/{report}/idx.txt"
+    params:
+        #gc="/home/kevhu/data/bedFiles/IAD124056_167_Designed.del.nopool.gc.bed",
+        gc="/home/kevhu/scripts/newMousePanelPipeline/reports/{report}/bed.txt",
+        #normals="/home/kevhu/data/normals/mousePanel/20191105n9.IDlist.txt",
+        normals="/home/kevhu/scripts/newMousePanelPipeline/reports/{report}/idList.txt",
+        out="/home/kevhu/scripts/newMousePanelPipeline/reports/{report}/" 
+    output:
+        "/home/kevhu/scripts/newMousePanelPipeline/reports/{report}/amplicon.combinedCoverage.input.txt"
+    shell:
+        "perl /home/kevhu/scripts/20200909_cna_inputs.pl --idx {input} --gc {params.gc} --normals {params.normals} --out {params.out}"
+
+rule copyNumber:
+    input:
+        cov="/home/kevhu/scripts/newMousePanelPipeline/reports/{report}/amplicon.combinedCoverage.input.txt"
+    output:
+        "/home/kevhu/scripts/newMousePanelPipeline/reports/{report}/combinedCalls.txt"
+    params:
+        min="--min-amplicons-per-gene=3",
+        gc="/home/kevhu/scripts/newMousePanelPipeline/reports/{report}/amplicon.GCinput.txt",
+        sInfo="/home/kevhu/scripts/newMousePanelPipeline/reports/{report}/sampleInfo.input.txt"
+    shell:
+        "/usr/bin/Rscript --slave --no-restore /home/kevhu/scripts/20200908mouseCnaScript.R {params.gc} {params.sInfo} {input.cov} {params.min}"

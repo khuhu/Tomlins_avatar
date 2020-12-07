@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+FILES=/mnt/DATA4/kevhu/choLab/vcfs/testingtesting.vcf.gz
+#FILES=$1
+cd ~/programs/annovar/
+
+for file in $FILES; do
+	perl convert2annovar.pl -format vcf4old $file > ~/tmp/mouseVars.avinput
+	#perl annotate_variation.pl --filter --dbtype vcf --vcfdbfile IAD124056_167_Designed_mm10_SNPs.vcf --buildver mm10 --otherinfo --outfile ~/tmp/avinput2 ~/tmp/mouseVars.avinput mousedb/
+	#perl annotate_variation.pl --filter --dbtype vcf --vcfdbfile IAD124056_167_Designed_mm10_Indels.vcf --buildver mm10 --otherinfo --outfile  ~/tmp/avinput3 ~/tmp/avinput2.mm10_vcf_filtered mousedb/
+	#perl annotate_variation.pl --geneanno --dbtype knownGene --buildver mm10 --otherinfo --outfile $(basename "$file")_filtAnno ~/tmp/avinput3.mm10_vcf_filtered mousedb/
+	perl table_annovar.pl ~/tmp/mouseVars.avinput mousedb/ --buildver mm10 --outfile /mnt/DATA4/kevhu/annovarOut/test --tempdir /mnt/DATA4/kevhu/annovarOut/ -operation g,f,f -protocol refGene,IAD124056_167_Designed_mm10_Indels,IAD124056_167_Designed_mm10_SNPs 
+
+done

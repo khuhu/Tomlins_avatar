@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+#FILES=/mnt/DATA4/kevhu/choLab/vcfs/20191106KcMerged.vcf.gz 
+#FILES=/mnt/DATA4/kevhu/choLab/vcfs/20191106listOfFiles.txt
+#FILES=$1
+cd ~/programs/annovar/
+
+#for file in $FILES; do
+#	perl convert2annovar.pl -format vcf4old $file > ~/tmp/mouseVars.avinput
+#	perl table_annovar.pl ~/tmp/mouseVars.avinput mousedb/ --buildver mm10 --outfile /mnt/DATA4/kevhu/annovarOut/20191106Kc --tempdir /mnt/DATA4/kevhu/annovarOut/ -operation g,f,f -protocol refGene,IAD124056_167_Designed_mm10_Indels,IAD124056_167_Designed_mm10_SNPs 
+#
+#done
+
+cat $1 | while read line;
+do
+	fbname=$(basename $line .normed.filtered.vcf.gz)
+	perl convert2annovar.pl -format vcf4old $line > ~/tmp/mouseVars.avinput
+	perl table_annovar.pl ~/tmp/mouseVars.avinput mousedb/ --buildver mm10 --outfile /mnt/DATA4/kevhu/annovarOut/$fbname --tempdir /mnt/DATA4/kevhu/annovarOut/ -operation g,f,f -protocol refGene,IAD124056_167_Designed_mm10_Indels,IAD124056_167_Designed_mm10_SNPs
+done

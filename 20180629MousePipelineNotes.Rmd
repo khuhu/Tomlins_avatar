@@ -1,0 +1,40 @@
+---
+title: "Mouse analysis"
+output: html_notebook
+---
+
+
+
+###General Steps to mouse pipeline. Need to annotate well for reproducibility. 
+> For a good portion of the data processing I relied on both R and Snakemake (python). R was first used to dump the data into the appropriate directury, such that Snakemake could be run to automically detect the BAM files trasnferred there. Two Snakemake files were then used to process the BAM files. First snake make file is used to call variants. Variants called using a edited version of the TVC caller. Only thing edited was renaming the files and moving them. Second is to format VCF file i.e align and filter based on certain read statistics. Bash script was then used to annotate the variants and filter with annovar.
+
+
+###Insert digram here of general scheme. Need to create later + provide the directory structure
+
+
+Excluding the general pipeline. There were a few things I did prior like create a hotspot file to call the variants, and I'll start by explaining that. Don't believe it was necessary to do this step, because I think I originally thought I needed all calls to have a call or no call at the same positions. So a hotspot file is needed in order to force the calls when the variant caller otherwise would not. The final hotspot file is listed below along with the code used to make it ... I think. Wrote this ~ 4 months after I made it. In hindsight I should've documented this right away........ :
+
+```{bash, eval = FALSE}
+/mnt/DATA4/kevhu/choLab/vcfs/allMouseVarsCombined.hotspotLeftAligned.vcf
+```
+
+Code below uses Life Technologies' tvc caller. Need to test whether not using the hotspot file changes the output of the data.
+Also need to find code on how I combined the BAM files
+
+Code below needs to be tested. Things that need to be tested for code below. Try using left alignment option here so that I dont need to use samtools afterwards. If reference is not right, try using one in the /srv/tvc_caller. Lastly check to make sure the outputs is the same as previously. 
+```{bash, eval=FALSE}
+tvcutils --input-bed IAD124056_167_Designed.bed --input-vcf /mnt/DATA4/kevhu/choLab/vcfs/allMouseVarsCombined.vcf --output-vcf /mnt/DATA4/kevhu/choLab/vcfs/allMouseVarsCombined.hotspot.vcf --reference /mnt/DATA4/genomes/hg19/hg19.fasta
+```
+
+
+
+
+
+
+```{r}
+
+
+
+
+```
+

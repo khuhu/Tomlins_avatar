@@ -1,0 +1,40 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+
+Goal of this notebook is to recapitulate Dan's calling algorithm for mutations from RNA samples. He did it in PR-80 and PR-37 for the prostate samples. First I need to create a bed file for the caller which are just coordinates
+
+
+```{bash, eval=FALSE}
+/mnt/DATA4/kevhu/scripts/copyOfTVC.py -b /srv/tvc-5.0.2-Ubuntu_12.04_x86_64-binary/ref/bed/prTissue_WG00196_02092016_Designed.bed -i /mnt/DATA3/Yoda_data_dump/Auto_user_SATProton-124-Prostate_RNAseq_Tissue_289_315/IonXpress_048_rawlib.bam -r /srv/tvc-5.0.2-Ubuntu_12.04_x86_64-binary/ref/RNA_refs/WG00196_02092016_Reference/WG00196_02092016_Reference.fasta -p /srv/tvc-5.0.2-Ubuntu_12.04_x86_64-binary/ref/json/somatic_low_stringency_proton.json -B /srv/tvc-5.0.2-Ubuntu_12.04_x86_64-binary/bin/ --out /mnt/DATA4/kevhu/urineRNA/ -N 12 --primer-trim-bed /srv/tvc-5.0.2-Ubuntu_12.04_x86_64-binary/ref/ptrim_bed/prTissue_WG00196_02092016_Designed.bed -z PR80.1
+```
+
+Above seemed to work, but for Andi's urine samples we needed to create new reference
+Below is used to format the bwa index, fasta index and generating the sequence dictionary respectively.
+Line after that is to run snakemake file using 12 cores. Followed by 
+Note you have to explicitly say number of cores
+```{bash, eval=FALSE}
+
+sudo /mnt/DATA4/kevhu/programs/bwa/bwa index -a bwtsw WG001964_05122017_Reference.fasta 
+
+sudo ../../../bin/samtools faidx WG001964_05122017_Reference.fasta
+
+sudo java -jar /mnt/DATA4/kevhu/programs/picard-2.17.10/picard.jar CreateSequenceDictionary REFERENCE=WG001964_05122017_Reference.fasta OUTPUT=WG001964_05122017_Reference.fasta.dict
+
+snakemake --cores 12 --snakefile Snakefile.1
+
+snakemake --cores 12 --snakefile Snakefile.leftAlign
+```
+
+
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file).

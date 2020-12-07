@@ -1,0 +1,24 @@
+### snakefile used to create overrall table
+### desired input (?), output would be a combined report file 
+
+
+import pandas as pd
+data = pd.read_csv("/home/kevhu/scripts/newMousePanelPipeline/mouseBedsIdx.txt", sep='\t')
+reportID = data['reports']
+
+rule all:
+    input:
+        expand("/home/kevhu/scripts/newMousePanelPipeline/reportAnno/{report}_anno.txt", report = reportID)
+
+### rule hg38Convert: placeholder for when I rewrite the conversion code
+
+rule combined:
+    input:
+        "/home/kevhu/scripts/newMousePanelPipeline/vcfs/{report}/"
+    output:
+        "/home/kevhu/scripts/newMousePanelPipeline/reportAnno/{report}_anno.txt"
+    params:
+        rep="{report}"
+    shell:
+        "/usr/bin/Rscript --slave --no-restore /home/kevhu/scripts/20201007processingVarAnno.R --input {input} --output {params.rep}"
+
