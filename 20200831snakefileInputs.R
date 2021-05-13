@@ -32,7 +32,7 @@ listOfBeds <- as.data.frame(listOfBeds, stringsAsFactors = FALSE)
 colnames(listOfBeds) <- c("directories", "bed")
 ### can intserct the list of directories that use different mouse bed files
 mouseIndices <- grep("IAD124056_167_Designed.gc.bed", listOfBeds$bed)
-mouseIndices2 <- grep("IAD202296_167_Designed.gc.bed", listOfBeds$bed)
+mouseIndices2 <- grep("IAD202670_167_Designed.gc.bed", listOfBeds$bed)
 mouseIndices3 <- c(mouseIndices, mouseIndices2)
 
 mouseBeds <- listOfBeds[mouseIndices3,]
@@ -72,6 +72,17 @@ mouseBeds$normalsId <- str_replace(mouseBeds$normalsId, "IAD202296_Designed.gc.b
                                    "/home/kevhu/data/normals/mousePanel/placeholder.txt")
 
 
+mouseBeds$symlinkFrom <- "empty"
+
+for (i in 1:nrow(mouseBeds)) {
+  if (mouseBeds$cnBed[i] == "IAD202670_167_Designed.gc.bed") {
+    mouseBeds$symlinkFrom[i] <- "/home/kevhu/programs/annovar/mousedb/IAD202670_167_Designed_mm10_mpgpv6_Indels.avinput"
+  }
+  if (mouseBeds$cnBed[i] == "IAD124056_167_Designed.del.nopool.gc.bed") {
+    mouseBeds$symlinkFrom[i] <- "/home/kevhu/programs/annovar/mousedb/IAD124056_167_Designed_mm10_mpgpv6_Indels.avinput"
+  }
+}
+
 #fullPathRes <- NULL
 #for (i in seq_along(mouseBeds$summaryFile)) {
 #  tmpFile <- read.table(mouseBeds$summaryFile[i], sep = "\t", stringsAsFactors = FALSE, header = TRUE)
@@ -110,6 +121,18 @@ for (i in seq_along(mouseBeds$reports)) {
   setwd("/home/kevhu/scripts/newMousePanelPipeline/vcfs/")
   if(!dir.exists(mouseBeds$reports[i])){
     system(sprintf("mkdir -p %s", mouseBeds$reports[i]))
+  #  setwd(mouseBeds$reports[i])
+  #  file.symlink(mouseBeds$symlinkFrom[i], "symlink_for_snakemake.avinput")
+  #  file.symlink("/home/kevhu/programs/annovar/mousedb/mm10_refGene.txt", "./")
+  #  file.symlink("/home/kevhu/programs/annovar/mousedb/mm10_refGeneMrna.fa", "./")
+    
+  #  system(sprintf("mkdir -p %s", "mm10_seq"))
+  #  mm10_seqName <- system(command = "ls /home/kevhu/programs/annovar/mousedb/mm10_seq/", intern = TRUE)
+  #  setwd("./mm10_seq/")
+  #  for (i in 1:length(mm10_seqName)) {
+  #    file.symlink(paste0("/home/kevhu/programs/annovar/mousedb/mm10_seq/", mm10_seqName[i]),
+  #                        "./")
+  #  }
   }
 }
 

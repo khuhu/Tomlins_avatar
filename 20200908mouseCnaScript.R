@@ -161,6 +161,9 @@ cat("Reading read counts...");
 #dfRaw <- read.table(readCountsFilename, header=TRUE, sep=",",stringsAsFactors=FALSE);
 #2017/08/31: Kevinaded check names portion, b/c colnames got weird 
 dfRaw <- read.table(readCountsFilename, header=TRUE, sep=",", stringsAsFactors = FALSE, check.names = FALSE);
+if (length(which(duplicated(colnames(dfRaw)))) > 1) {
+  dfRaw <- dfRaw[,-which(duplicated(colnames(dfRaw)))]
+}
 
 
 cat("...read table with", nrow(dfRaw), "rows.\n");
@@ -169,6 +172,11 @@ tumorNames <- as.vector(bcNameMapping$Sample[bcNameMapping$SampleClass == "Tumor
 normalNames <- as.vector(bcNameMapping$Sample[bcNameMapping$SampleClass == "Normal" & bcNameMapping$Sample %in% colnames(dfRaw)]);
 cat("Tumor names (", length(tumorNames), "):", tumorNames, "\n");
 cat("Normal names (", length(normalNames), "):", normalNames, "\n");
+
+if (length(which(duplicated(normalNames))) > 1) {
+  normalNames <- normalNames[-which(duplicated(normalNames))]
+}
+
 allNames <- append(tumorNames, normalNames);
 
 ## Read in variant data
@@ -284,15 +292,15 @@ geneInfo <- getGeneInfo(df);
 ####commented out the part dropping the noisiest amplicon so I can keep the Rb1 deletion as its own gene
 
 ## Drop the noisiest amplicons
-#cat("Dropping", (noisyAmpliconQuantile*100), "percent of amplicons with least pool counts...\n");
-#minPoolCount <- quantile(df$TotalPool, noisyAmpliconQuantile);
-#df <- df[df$TotalPool >= minPoolCount,];
-#cat("...reduced to", nrow(df), "amplicons; dropped all with less than", minPoolCount, "total pool reads.\n");
+cat("Dropping", (noisyAmpliconQuantile*100), "percent of amplicons with least pool counts...\n");
+minPoolCount <- quantile(df$TotalPool, noisyAmpliconQuantile);
+df <- df[df$TotalPool >= minPoolCount,];
+cat("...reduced to", nrow(df), "amplicons; dropped all with less than", minPoolCount, "total pool reads.\n");
 
 ## Drop amplicons in genes with a low total probe count
-#keepGenes <- geneInfo[geneInfo$NumProbes >= minAmpliconsPerGene,]$Gene;
-#df <- df[df$Gene %in% keepGenes,];
-#cat("...reduced to", nrow(df), "amplicons; dropped all genes with less than", minAmpliconsPerGene, "total probes.\n");
+keepGenes <- geneInfo[geneInfo$NumProbes >= minAmpliconsPerGene,]$Gene;
+df <- df[df$Gene %in% keepGenes,];
+cat("...reduced to", nrow(df), "amplicons; dropped all genes with less than", minAmpliconsPerGene, "total probes.\n");
 
 if (normalPool) {
   df$Weights <- pmax(1, df$TotalPool) / sum(df$TotalPool);
@@ -430,6 +438,30 @@ for (x in allNames) {
   ### gene copy numbers there are
 }
 
+### these counts actually work for segmentation - idea is to make a copy-number raitos and denom is mean of normals (after correctedcounts and gc-correction)
+
+
+
+if (length(poolNames)>1) {
+  normalAmpMean <- apply(dfCorrectedCounts[, poolNames], 1, mean);
+} else {
+  normalAmpMean <- dfCorrectedCounts[[poolNames[1]]];
+}
+
+
+
+dfCorrectedCounts2 <- dfCorrectedCounts
+for (x in allNames) {
+  dfCorrectedCounts2[[x]] <- dfCorrectedCounts[[x]]/normalAmpMean
+}
+
+
+dfZscoresCounts <- df
+for (x in allNames) {
+  dfZscoresCounts[[x]] <- dfResidRatio[[x]]/dfCorrectionRatio[[x]]
+}
+
+
 ## Output plotted amplicon-level CN ratio - DHH, 2015/12/10
 dfPlotValue <- df;
 for (x in allNames) {
@@ -498,8 +530,8 @@ psampMultiple <- function(samps, ylim=NULL, cex.axis=0.75, ax=TRUE, main=NA) {
   }
 }
 
-psamp <- function(samp, ylim=NULL, cex.axis=0.75, ax=TRUE, main=NA, analysisResults=NULL) {
-  geneSpacing <- 40;
+psamp <- function(samp, ylim=NULL, cex.axis=0.25, ax=TRUE, main=NA, analysisResults=NULL) {
+  geneSpacing <- 80;
   chromSpacing <- 0;
   if (is.na(main)) main=samp;
   
@@ -536,7 +568,7 @@ psamp <- function(samp, ylim=NULL, cex.axis=0.75, ax=TRUE, main=NA, analysisResu
         if (labelSigGenesOnly) { tmp[cols=="black"] <- ""; }
         geneAxisLabels <- paste(geneAxisLabels, tmp);
       }
-      if (showZ && showQ) { cex.axis <- 0.8*cex.axis; }
+      if (showZ && showQ) { cex.axis <- 1.0*cex.axis; }
     }
     labelPositions = 0.5*(geneInfo$MinIndex+geneInfo$MaxIndex)+geneSpacing*geneInfo$GeneNum+chromSpacing*(geneInfo$ChromNum-1);
     Map(function(x,y,z) axis(1, at=x, col.axis=y, labels=z, lwd=0, cex.axis=cex.axis, mgp=c(1,0.5,0), las=2), labelPositions, cols, geneAxisLabels);
@@ -697,7 +729,7 @@ for (samp in allNames) {
     analysisResults[i, "Log10QValue"] = min(analysisResults[i:length(genes), "Log10QValue"]);
   }
   setwd(dirToWrite)
-  pdf(paste("out.", samp, ".pdf", sep=""), width=7 * 1.25, height=5 * 1.25, useDingbats=FALSE);
+  pdf(paste("out.", samp, ".pdf", sep=""), width=7 * 2, height=5 * 2, useDingbats=FALSE);
   if (variantData) pboth(samp, cex.axis=0.5, ylim=c(-2,4), analysisResults=analysisResults) else psamp(samp, cex.axis=0.5, ylim=c(-4,4), analysisResults=analysisResults);
   dev.off();
   write.table(format(analysisResults, scientific=FALSE, digits=4), file=paste("calls.", samp, ".txt", sep=""), quote=FALSE, sep="\t", row.names=FALSE);
@@ -706,6 +738,8 @@ for (samp in allNames) {
 
 write.table(combinedTable, file="combinedCalls.txt", quote=FALSE, sep="\t", row.names=FALSE);
 write.table(geneEst, file="cnMatrix_gene.txt", quote=FALSE, sep="\t", row.names=FALSE, col.names = TRUE);
-write.table(dfCorrectedCounts, file = "cnAmplicon_matrix.txt", quote=FALSE, sep="\t", row.names=FALSE, col.names = TRUE);
+write.table(dfCorrectedCounts2, file = "cnAmplicon_matrix.txt", quote=FALSE, sep="\t", row.names=FALSE, col.names = TRUE);
+write.table(dfZscoresCounts, file = "gcCorrectedCounts_matrix.txt", quote=FALSE, sep="\t", row.names=FALSE, col.names = TRUE);
+
 
 warnings();

@@ -29,7 +29,7 @@ listOfBeds <- as.data.frame(listOfBeds, stringsAsFactors = FALSE)
 colnames(listOfBeds) <- c("directories", "bed")
 ### can intserct the list of directories that use different mouse bed files
 mouseIndices <- grep("IAD124056_167_Designed.gc.bed", listOfBeds$bed)
-mouseIndices2 <- grep("IAD202296_167_Designed.gc.bed", listOfBeds$bed)
+mouseIndices2 <- grep("IAD202670_167_Designed.gc.bed", listOfBeds$bed)
 mouseIndices3 <- c(mouseIndices, mouseIndices2)
 
 mouseBeds <- listOfBeds[mouseIndices3,]
@@ -63,6 +63,7 @@ for (i in seq_along(mouseBeds$summaryFile)) {
   tmpTable <- read.table(mouseBeds$summaryFile[i], sep = "\t", header = TRUE, stringsAsFactors = FALSE)
   setwd(mouseBeds$variantDir[i])
   ln1 <- system('find . -name "TSVC_variants.vcf.gz"', intern = TRUE)
+  ln1 <- ln1[order(ln1)]
   ln2 <- str_replace(ln1, "./", mouseBeds$variantDir[i])
   ln3 <- NULL
   for (j in seq_along(ln1)) {
@@ -116,6 +117,10 @@ vcfList <- sub(vcfList, pattern = "\\.", replacement = partFullPath)
 snakeFileOut <- sub(x = vcfList, pattern = "\\.vcf\\.gz", replacement = "")
 tableForSnakemake <- data.frame("filename" = snakeFileOut, stringsAsFactors = FALSE)
 
+reportName <- str_remove(tableForSnakemake$filename, "/home/kevhu/scripts/newMousePanelPipeline/vcfs/")
+reportName <- str_remove(reportName, "/.*")
+
+tableForSnakemake$report <- reportName
 ### maybe append instead of rewriting later ..
 write.table(tableForSnakemake, "/home/kevhu/scripts/newMousePanelPipeline/mouseVcfTable.txt", sep = "\t",
             quote = FALSE, row.names = FALSE, col.names = TRUE)

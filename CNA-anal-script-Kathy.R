@@ -16,9 +16,9 @@ args <- c("/mnt/DATA4/kevhu/choLab/20200301analysis/amplicon.GCinput.txt", "/mnt
           "--min-amplicons-per-gene=3")
 
 
-args <- c("/home/kevhu/scripts/newMousePanelPipeline/reports/Reanalysis_user_draco-31-KC_OVC_3_foreign_608_cujQ_622/amplicon.GCinput.txt",
-          "/home/kevhu/scripts/newMousePanelPipeline/reports/Reanalysis_user_draco-31-KC_OVC_3_foreign_608_cujQ_622/sampleInfo.input.txt",
-          "/home/kevhu/scripts/newMousePanelPipeline/reports/Reanalysis_user_draco-31-KC_OVC_3_foreign_608_cujQ_622/amplicon.combinedCoverage.input.txt",
+args <- c("/mnt/DATA5/tmp/kev/matchedCCP/pt30/amplicon.GCinput.txt",
+          "/mnt/DATA5/tmp/kev/matchedCCP/pt30/sampleInfo.input.txt",
+          "/mnt/DATA5/tmp/kev/matchedCCP/pt30/amplicon.combinedCoverage.input.txt",
           "--min-amplicons-per-gene=3")
 
 showQ <- TRUE;
@@ -182,6 +182,9 @@ cat("Reading read counts...");
 #dfRaw <- read.table(readCountsFilename, header=TRUE, sep=",",stringsAsFactors=FALSE);
 #2017/08/31: Kevinaded check names portion, b/c colnames got weird 
 dfRaw <- read.table(readCountsFilename, header=TRUE, sep=",", stringsAsFactors = FALSE, check.names = FALSE);
+if (length(which(duplicated(colnames(dfRaw)))) > 1) {
+  dfRaw <- dfRaw[,-which(duplicated(colnames(dfRaw)))]
+}
 
 
 cat("...read table with", nrow(dfRaw), "rows.\n");
@@ -190,6 +193,11 @@ tumorNames <- as.vector(bcNameMapping$Sample[bcNameMapping$SampleClass == "Tumor
 normalNames <- as.vector(bcNameMapping$Sample[bcNameMapping$SampleClass == "Normal" & bcNameMapping$Sample %in% colnames(dfRaw)]);
 cat("Tumor names (", length(tumorNames), "):", tumorNames, "\n");
 cat("Normal names (", length(normalNames), "):", normalNames, "\n");
+
+if (length(which(duplicated(normalNames))) > 1) {
+  normalNames <- normalNames[-which(duplicated(normalNames))]
+}
+
 allNames <- append(tumorNames, normalNames);
 
 ## Read in variant data
@@ -308,15 +316,15 @@ geneInfo <- getGeneInfo(df);
 ####commented out the part dropping the noisiest amplicon so I can keep the Rb1 deletion as its own gene
 
 ## Drop the noisiest amplicons
-#cat("Dropping", (noisyAmpliconQuantile*100), "percent of amplicons with least pool counts...\n");
-#minPoolCount <- quantile(df$TotalPool, noisyAmpliconQuantile);
-#df <- df[df$TotalPool >= minPoolCount,];
-#cat("...reduced to", nrow(df), "amplicons; dropped all with less than", minPoolCount, "total pool reads.\n");
+cat("Dropping", (noisyAmpliconQuantile*100), "percent of amplicons with least pool counts...\n");
+minPoolCount <- quantile(df$TotalPool, noisyAmpliconQuantile);
+df <- df[df$TotalPool >= minPoolCount,];
+cat("...reduced to", nrow(df), "amplicons; dropped all with less than", minPoolCount, "total pool reads.\n");
 
 ## Drop amplicons in genes with a low total probe count
-#keepGenes <- geneInfo[geneInfo$NumProbes >= minAmpliconsPerGene,]$Gene;
-#df <- df[df$Gene %in% keepGenes,];
-#cat("...reduced to", nrow(df), "amplicons; dropped all genes with less than", minAmpliconsPerGene, "total probes.\n");
+keepGenes <- geneInfo[geneInfo$NumProbes >= minAmpliconsPerGene,]$Gene;
+df <- df[df$Gene %in% keepGenes,];
+cat("...reduced to", nrow(df), "amplicons; dropped all genes with less than", minAmpliconsPerGene, "total probes.\n");
 
 if (normalPool) {
   df$Weights <- pmax(1, df$TotalPool) / sum(df$TotalPool);
@@ -412,6 +420,9 @@ sampleMedianGeneEst <- dfResidRatio;
 #write.table(df,"df_master.txt",quote=FALSE)
 
 dfCorrectedCounts <- dfCorrectionRatio;
+tmp <- dfCorrectionRatio;
+
+dfNormals <- df[, poolNames]
 
 for (x in allNames) {
   wts <- df$Weights;
@@ -445,6 +456,10 @@ for (x in allNames) {
     
   }
   sampleMedianGeneEst[[x]] <- rep(median(geneEst[[x]]), length(sampleMedianGeneEst[[x]]));
+  #if (x == "MG_21X53") {
+  #  print(geneEst[[x]])
+  #  print(median(geneEst[[x]]))
+  #}
   geneEst[[x]] <- geneEst[[x]] / median(geneEst[[x]]);
   rawGeneEst[[x]] <- rawGeneEst[[x]] / median(rawGeneEst[[x]]);
   ###This is where I should run the SVA + regression for correction 
@@ -453,6 +468,32 @@ for (x in allNames) {
   ### I'm guessing you do this b/c you want to find how many times more than the baseline (which in our base in the median)
   ### gene copy numbers there are
 }
+
+#normalAmpMedian <- apply(dfCorrectedCounts[, poolNames], 1, median)
+#normalAmpMean <- apply(dfCorrectedCounts[, poolNames], 1, mean)
+
+if (length(poolNames)>1) {
+  normalAmpMean <- apply(dfCorrectedCounts[, poolNames], 1, mean);
+} else {
+  normalAmpMean <- dfCorrectedCounts[[poolNames[1]]];
+}
+
+
+
+dfCorrectedCounts2 <- dfCorrectedCounts
+for (x in allNames) {
+  dfCorrectedCounts2[[x]] <- dfCorrectedCounts[[x]]/normalAmpMean
+}
+
+
+dfZscoresCounts <- df
+for (x in allNames) {
+  dfZscoresCounts[[x]] <- df[[x]]/dfCorrectionRatio[[x]]
+}
+
+
+### did commente below to see average deviation from zero and mean did better
+mean((1 - apply(dfCorrectedCounts2[,poolNames], 2, mean)))
 
 ## Output plotted amplicon-level CN ratio - DHH, 2015/12/10
 dfPlotValue <- df;

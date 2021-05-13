@@ -68,7 +68,7 @@ cdnaLevelMmFilt <- cdnaLevelMm[-which(is.na(cdnaLevelMm$cdna_coding_start)),]
 cdnaLevelMmFilt <- cdnaLevelMmFilt[which(cdnaLevelMmFilt$chromosome_name %in% chromFilters),]
 
 
-write.table(cdnaLevelMmFilt, "/home/kevhu/data/20201030Mm10KnownCanbiomartQuery.txt", sep = "\t",
+write.table(cdnaLevelMmFilt, "/home/kevhu/data/20210203Mm10KnownCanbiomartQuery.txt", sep = "\t",
             quote = FALSE, col.names = TRUE, row.names = FALSE)
 
 
@@ -78,7 +78,7 @@ cdnaLevelHgUcsc <- getBM(mart = ensemblHg, attributes = attrHg_prot, filters = "
 cdnaLevelHgUcscFilt <- cdnaLevelHgUcsc[-which(is.na(cdnaLevelHgUcsc$cdna_coding_start)),]
 cdnaLevelHgUcscFilt <- cdnaLevelHgUcscFilt[which(cdnaLevelHgUcscFilt$chromosome_name %in% chromFilters),]
 
-write.table(cdnaLevelHgUcscFilt, "/home/kevhu/data/20201030hg38KnownCanbiomartQuery.txt", sep = "\t",
+write.table(cdnaLevelHgUcscFilt, "/home/kevhu/data/20210203hg38KnownCanbiomartQuery.txt", sep = "\t",
             quote = FALSE, col.names = TRUE, row.names = FALSE)
 
 
@@ -121,6 +121,18 @@ proteinMmSeq <- getBM(ensemblMm, attributes = attr_peptide, filters = "external_
 
 write.table(proteinMmSeq, "/home/kevhu/data/20201030proteinMm.txt",
             quote = FALSE, col.names = TRUE, sep = "\t", row.names = FALSE) 
+
+
+# doing new queries separately for cds and exon, no need for cdna info
+attr_tmp <- c("external_gene_name", "ensembl_transcript_id",
+                 "chromosome_name", "cds_start", "cds_end", "strand", "rank",
+                 "exon_chrom_start", "exon_chrom_end")
+
+tmpMm <- getBM(mart = ensemblMm, attributes = attr_tmp, filters = "external_gene_name",
+                     values = knownCanMm10$mm10.kgXref.geneSymbol)
+
+cdnaLevelMmFilt <- cdnaLevelMm[-which(is.na(cdnaLevelMm$cdna_coding_start)),]
+cdnaLevelMmFilt <- cdnaLevelMmFilt[which(cdnaLevelMmFilt$chromosome_name %in% chromFilters),]
 
 
 

@@ -296,6 +296,8 @@ aaConversionCheck <- function(singleRowDf){
   conScore <- mean(msaConservationScore(msaRes, substitutionMatrix = BLOSUM100))
   ConSeq <- msaConsensusSequence(msaRes)
   
+  #print(msaRes)
+  
   return(data.frame("seq1" = adjacentAas$sub_prt1, "seq2"=adjacentAas$sub_prt2, "conSeq"= ConSeq,
               "check" = matchingCheck, "conservationScore"=conScore, "original" = singleRowDf$original,
               "ensemblHg" = singleRowDf$ensemblHg, "ensemblMm"=singleRowDf$ensemblMm,
@@ -318,9 +320,9 @@ aaConversionCheck <- function(singleRowDf){
 
 ### everything below testing just the initial conversion
 
-test <- aaToGenome("R", "DNMT3A", 882)
-test <- data.frame(test, stringsAsFactors = FALSE)
-cdsLiftOver(test, hg38toMm10Chain)
+#test <- aaToGenome("R", "DNMT3A", 882)
+#test <- data.frame(test, stringsAsFactors = FALSE)
+#cdsLiftOver(test, hg38toMm10Chain)
 
 small_cosmic <- read.table("/home/kevhu/data/20190225mouseConvertedOncogeneHotspots.txt",
                            sep = "\t", stringsAsFactors = FALSE, header = TRUE)
@@ -405,14 +407,47 @@ length(unique(checkDf$original))/length(unique(small_cosmic$Hotspot.Residue))
 length(unique(checkDf$original))
 length(unique(small_cosmic$Hotspot.Residue))
 slices <- c(13, 16, 120) # 13 no isoform with matching aa, 16 no conversion, 120 good
-lbls <- c("bad (no matching amino acid or wrong name)", "bad (no good conversion)",
-          "good (converted)")
+lbls <- c("no matching amino acid", "no conversion",
+          "converted")
+
+dev.off()
+pdf("/mnt/DATA5/tmp/kev/misc/20210311aaConversionStats.pdf", useDingbats = FALSE)
+pie(slices, labels = lbls, main="Amino Acid Conversion Stats")
+dev.off()
+
+
 
 badCheck <- checkDf[which(checkDf$check == "no"), ]
 summary(checkDf$conservationScore[which(checkDf$check == "yes")])
 boxplot(checkDf$conservationScore[which(checkDf$check == "yes")])
-for (i in unique(checkDf$original)) {
-  
+
+genomeToAaDf_braf <- genomeToAaDf[which(genomeToAaDf$gene == "BRAF"),]
+tmpCheck <- NULL
+for (i in 1:nrow(genomeToAaDf_braf)) {
+  tmpRow <- genomeToAaDf_braf[i,]
+  res <- aaConversionCheck(tmpRow)
+  tmpCheck <- rbind(tmpCheck, res)
 }
 
+
+
+###202100312 plot for conservation scores from converted
+
+dfToGraph <- checkDf
+dfToGraph$mLength <- nchar(checkDf$seq1)
+### this simple plot shows there is no bias towards length of the amino acid matched
+### and the conservation scores
+plot(dfToGraph$mLength, dfToGraph$conservationScore)
+###
+dfToGraph$check <- str_replace(dfToGraph$check, "yes", "1")
+dfToGraph$check <- str_replace(dfToGraph$check, "no", "0")
+dfToGraph$check  <- as.numeric(dfToGraph$check)
+
+dfToGraph <- dfToGraph[order(dfToGraph$check, dfToGraph$conservationScore,
+                             decreasing = TRUE),]
+dfToGraph2 <- dfToGraph[-which(duplicated(dfToGraph$original)),]
+
+ggplot(data = dfToGraph2, aes(x = conservationScore, y = mLength,
+                              color = relevel(factor(check), ref = "1"))) +
+  geom_point(size = 1)
 

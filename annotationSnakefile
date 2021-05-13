@@ -7,7 +7,6 @@ data = pd.read_csv("/home/kevhu/scripts/newMousePanelPipeline/mouseVcfTable.txt"
 filename = data['filename']
 
 
-
 rule all:
     input:
         expand("{id}.mm10_multianno.txt", id = filename)
@@ -28,4 +27,4 @@ rule annotate:
     params:
         prefix="{id}"
     shell:
-        "perl /home/kevhu/programs/annovar/table_annovar.pl {input} /home/kevhu/programs/annovar/mousedb/ --buildver mm10 --outfile {params.prefix} --tempdir /home/kevhu/programs/annovar/ -operation g,f -protocol refGene,IAD124056_167_Designed_mm10_mpgpv6_Indels --otherinfo --remove"
+        "perl /home/kevhu/programs/annovar/table_annovar.pl {input} /home/kevhu/programs/annovar/mousedb/ --buildver mm10 --outfile {params.prefix} --tempdir /home/kevhu/programs/annovar/ -operation g,f -protocol refGene,gp.v6.merged.norm.snp.indels.sfiltered --otherinfo --remove"

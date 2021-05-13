@@ -10,7 +10,7 @@ getSeqFields <- function(x){
   tmpFields <- NULL
   for(i in seq_along(x)){
     tmpVar <- unlist(str_split(x[i], "\\:"))
-    fieldOneRow <- c(tmpVar[2], tmpVar[4], tmpVar[8], tmpVar[9])
+    fieldOneRow <- c(tmpVar[2], tmpVar[4], tmpVar[8], tmpVar[9], tmpVar[15], tmpVar[14])
     tmpFields <- rbind(tmpFields, fieldOneRow)
   }
   return(tmpFields)
@@ -43,8 +43,8 @@ bedName <- sub(x = bedFile$V1, pattern = "\\.gc\\.bed", replacement = "")
 
 listOfAnnotationFiles <- system("ls *mm10_multianno.txt", intern = TRUE)
 header <- c("Sample","Chr", "Start", "End", "Ref", "Alt", "Func.refGene", "Gene.refGene", "GeneDetail.refGene",
-            "ExonicFunc.refGene", "AAChange.refGene", "IAD124056_167_Designed_mm10_mpgpv6_Indels",
-            "GQ", "FDP", "FAO", "AF", "Bed.Name")
+            "ExonicFunc.refGene", "AAChange.refGene", "mm10_mpgpv6_Indels",
+            "GQ", "FDP", "FAO", "AF", "FSAF","FSAR","Bed.Name")
 fullAnnoTable <- NULL
 for(i in listOfAnnotationFiles){
   sampleName <- sub(x = i, pattern = "*\\.mm10_multianno\\.txt", replacement = "")
