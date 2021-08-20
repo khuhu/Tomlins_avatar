@@ -30,6 +30,23 @@ firstUpper <- function(x) {
 # cds conversion from cds to genomic position
 # updated 20210512: simple and works as intended
 cdsConversion <- function(df){
+  # norm cdna_start/end
+  df <- df[order(df$rank),]
+  normStart <- NULL
+  normEnd <- NULL
+  for (i in 1:nrow(df)) {
+    if (i == 1) {
+      normStart <- c(normStart, df$cdna_coding_start[i])
+      normEnd <- c(normEnd, df$cdna_coding_end[i])
+    } else{
+      normStart <- c(normStart, df$cdna_coding_start[i] - df$cdna_coding_end[i - 1])
+      normEnd <- c(normEnd, df$cdna_coding_end[i] - df$cdna_coding_end[i - 1])
+    }
+  }
+  
+  df$cdna_coding_start <- normStart
+  df$cdna_coding_end <- normEnd
+  
   if(df$strand[1] == 1){
     df$exon_chrom_start_strand <- df$exon_chrom_start
     df$exon_chrom_end_strand <- df$exon_chrom_end
@@ -37,7 +54,6 @@ cdsConversion <- function(df){
     df$exon_chrom_start_strand <- df$exon_chrom_end
     df$exon_chrom_end_strand <- df$exon_chrom_start
   }
-  
   strand_cds_start_conv <- NULL
   strand_cds_end_conv <- NULL
   
@@ -259,9 +275,9 @@ getAmpliconTargets <- function(geneList, type = "CDS", species = "human",
         tmpStart2 <- min(c(tmpStart, tmpEnd))
         tmpEnd2 <- max(c(tmpStart, tmpEnd))
         tmpDf <- data.frame("chromosome" = tmpGeneDat2$chromosome[j],
-                            "start" = tmpStart2,
-                            "end" =  tmpEnd2,
-                            "position" = paste0(tmpGeneName, "exon", tmpGeneDat2$rank),
+                            "start" = round(tmpStart2),
+                            "end" =  round(tmpEnd2),
+                            "position" = paste0(tmpGeneName, "exon", tmpGeneDat2$rank[j]),
                                stringsAsFactors = FALSE)
         tmpCoord <- rbind(tmpCoord, tmpDf)
       }
@@ -280,8 +296,8 @@ getAmpliconTargets <- function(geneList, type = "CDS", species = "human",
         tmpStart2 <- min(c(tmpStart, tmpEnd))
         tmpEnd2 <- max(c(tmpStart, tmpEnd))
         tmpDf <- data.frame("chromosome" = tmpGeneDat3$chromosome[j],
-                            "start" = tmpStart2,
-                            "end" =  tmpEnd2, "position" = paste0(tmpGeneName, "exon", tmpGeneDat3$rank[j]),
+                            "start" = round(tmpStart2),
+                            "end" =  round(tmpEnd2), "position" = paste0(tmpGeneName, "exon", tmpGeneDat3$rank[j]),
                             stringsAsFactors = FALSE)
         tmpCoord <- rbind(tmpCoord, tmpDf)
       }
@@ -293,10 +309,18 @@ getAmpliconTargets <- function(geneList, type = "CDS", species = "human",
       tmpGeneDat3 <- tmpGeneDat2
       tmpGeneDat3$numberAmps <- 1
       tmpGeneDat3 <- tmpGeneDat3[order(tmpGeneDat3$tmp, decreasing = TRUE), ]
-      overflowExons <- ifelse(numExons > diffAmps, diffAmps %% numExons, numExons %% diffAmps)
-      overflowAmps <- ifelse(numExons > diffAmps, ceiling(diffAmps/numExons), floor(diffAmps/numExons))
+      # 20210514: special cause where overflow equals number of exons
+      if (numExons == diffAmps) {
+        overflowAmps <- 1
+        overflowExons <- numExons
+      } else {
+        overflowExons <- ifelse(numExons > diffAmps, diffAmps %% numExons, numExons %% diffAmps)
+        overflowAmps <- ifelse(numExons > diffAmps, ceiling(diffAmps/numExons), floor(diffAmps/numExons))
+        
+      }
       tmpGeneDat3$numberAmps[1:overflowExons] <- tmpGeneDat3$numberAmps[1:overflowExons] + overflowAmps
       
+
       ### special case where number of amps isn't divisible by number of exons and modulous of that is greater than 1
       ### i. example is 5 exons and 12 amps
       overflowExons2 <- numAmps %/% numExons
@@ -337,26 +361,32 @@ getAmpliconTargets <- function(geneList, type = "CDS", species = "human",
       #  smallCdsGenes <- c(smallCdsGenes, paste0(i, "|", sum(tmpGeneDat3$tmp)))
       #}
       
-      #print(tmpExonDat_1amp)
-      #print(tmpExonDat_moreAmps)
       
+      
+      # 20210513: this was not made to be able to split one cds into more than 2-3 amplicons
+      # it gets messy. problem is when the increment size is much smaller than amplicon size
       
       tmpCoords_moreAmps <- NULL
       for (j in 1:nrow(tmpDat_moreAmps)) {
-        strand <- NULL
-        if (tmpDat_moreAmps$strand_cds_start_conv[j] > tmpDat_moreAmps$strand_cds_end_conv[j]) {
-          strand <- 1
-        } else{
-          strand <- -1
-        }
-        
         tmpDf <- NULL
         tmpIncrement <- floor(tmpDat_moreAmps$tmp[j]/tmpDat_moreAmps$numberAmps[j])
+        
+        # 20210514: spacing var so amplicons don't overlap
+        spacing <- ifelse(tmpIncrement > ampSize ,
+                          tmpIncrement,
+                          ampSize + 1)
         for (k in 1:tmpDat_moreAmps$numberAmps[j]) {
-          tmpStart <- tmpDat_moreAmps$strand_cds_start_conv[j] + strand * (tmpIncrement * k - ampSize/2)
-          tmpEnd <- tmpStart + strand  * ampSize
+          if (tmpDat_moreAmps$strand[j] > 0) {
+            tmpEnd <- tmpDat_moreAmps$strand_cds_start_conv[j] + spacing * k
+            tmpStart <- tmpEnd - ampSize - 1
+          } else if(tmpDat_moreAmps$strand[j] < 0){
+            tmpEnd <- tmpDat_moreAmps$strand_cds_start_conv[j] - spacing * k 
+            tmpStart <- tmpEnd + ampSize - 1
+          }
+          
           tmpStart2 <- min(c(tmpStart, tmpEnd))
           tmpEnd2 <- max(c(tmpStart, tmpEnd))
+          
           
           tmpDf <- rbind(tmpDf, data.frame("chromosome" = tmpDat_moreAmps$chromosome[j],
                                            "start" = tmpStart2, "end"  = tmpEnd2, 

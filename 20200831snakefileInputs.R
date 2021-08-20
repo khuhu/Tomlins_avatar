@@ -46,7 +46,7 @@ mouseBeds$snakemakeInput <- str_remove(mouseBeds$bed, "local_beds.*")
 summaryFileList <- NULL
 for (i in mouseBeds$directories) {
   setwd(i)
-  summaryFile <- system('find . -name *bc_summary.xls | grep -v "scraper"', intern = TRUE)
+  summaryFile <- system('find . -name *bc_summary.xls | grep -v "scraper" | grep -v "dummyCov"', intern = TRUE)
   summaryFile <- sub("./", i, summaryFile)
   summaryFileList <- c(summaryFileList, summaryFile)
 }

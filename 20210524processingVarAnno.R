@@ -1,10 +1,8 @@
-#!/usr/bin/env Rscript
-.libPaths(c("/home/kevhu/R/x86_64-pc-linux-gnu-library/3.2",.libPaths()))
 library(optparse)
 library(stringr)
 
-
-### actually this script should read in all annoFiles and then output one large table per report
+### add a list here so that I can use bcftoolsc merge for genotype pipeline 
+### this script should read in all annoFiles and then output one large table per report
 
 getSeqFields <- function(x,y){
   tmpFields <- NULL
@@ -48,29 +46,32 @@ bedName <- sub(x = bedFile$V1, pattern = "\\.gc\\.bed", replacement = "")
 
 listOfAnnotationFiles <- system("ls *mm10_multianno.txt", intern = TRUE)
 header <- c("Sample","Chr", "Start", "End", "Ref", "Alt", "Func.refGene", "Gene.refGene", "GeneDetail.refGene",
-            "ExonicFunc.refGene", "AAChange.refGene", "mm10_mpgpv6_Indels","QUAL", 
+            "ExonicFunc.refGene", "AAChange.refGene", "mm10_mpgpv6_Indels","name","QUAL", 
             "GQ", "FDP", "FAO", "AF", "FSAF","FSAR", "HRUN", "QD", "Bed.Name")
 fullAnnoTable <- NULL
 for(i in listOfAnnotationFiles){
   sampleName <- sub(x = i, pattern = "*\\.mm10_multianno\\.txt", replacement = "")
-  filename <- paste0(opt$input,i)
+  filename <- paste0(opt$input,"/",i)
   ### fails on empty files, so that's why tryCatch used
   tmpVcf <- tryCatch(read.table(filename, sep = "\t", skip = 1),
                      error=function(x) return(NULL))
   if(is.null(tmpVcf)){
-    #print(i)
+    print(i)
     next()
   }
-  tmpAnno2 <- tmpVcf[,c(1:11,17, 19, 21)]
+  tmpAnno2 <- tmpVcf[,c(1:11,14, 17, 19, 21)]
   fourCol <- getSeqFields(tmpAnno2$V21, tmpVcf$V19)
   rownames(fourCol) <- NULL
-  tmpAnno3 <- cbind(rep(sampleName, nrow(fourCol)) ,tmpAnno2[,1:12],
+  tmpAnno3 <- cbind(rep(sampleName, nrow(fourCol)) ,tmpAnno2[,1:13],
                     fourCol, rep(bedName, nrow(fourCol)))
   colnames(tmpAnno3) <- header
   fullAnnoTable <- rbind(fullAnnoTable, tmpAnno3)
 }
 
-setwd("/home/kevhu/scripts/newMousePanelPipeline/reportAnno/")
+vcfList <- system("ls -d $PWD/*norm.vcf.gz* | grep -v 'tbi'", intern = TRUE)
+writeLines(vcfList, "listOfVcfs.txt")
+
+setwd("/mnt/DATA6/mouseData/reportAnno/")
 write.table(fullAnnoTable, paste0(opt$output, "_anno.txt"), sep = "\t", col.names = TRUE, quote = FALSE, row.names = FALSE)
 ### notes left behind
 ### 2:GQ, 4:FDP, 8:FAO, 9:AF

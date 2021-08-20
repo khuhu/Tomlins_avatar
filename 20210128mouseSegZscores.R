@@ -32,7 +32,8 @@ mouseAmplicons2[,6:42] <- log2(mouseAmplicons2[,6:42])
 mouseAmplicons2$`mouseBedFile$V1[mouseBedIdx]` <- as.numeric(mouseAmplicons2$`mouseBedFile$V1[mouseBedIdx]`)
 
 allMouseCalls <- colnames(mouseAmplicons2)[6:42]
-mouseNormal <- c("13604n", "14104t", "14154n", "14433n", "2405n", "2519n", "2796n", "3867n","8234n")
+mouseNormal <- c("13604n", "14104t", "14154n", "14433n",
+                 "2405n", "2519n", "2796n", "3867n","8234n")
 
 BPN <- c("2027lte", "2405lot")
 BPRN <- c("2163lot", "3807lot", "14085lot","14433lote")
@@ -49,7 +50,12 @@ for (i in BPN[1]) {
   smoothed_tmpCNA <- smooth.CNA(tmpCNA_obj)
   segment_tmpCNA <- segment(smoothed_tmpCNA, verbose = 1, undo.splits = "sdundo", undo.SD = 0.2, alpha = 0.05,
                             p.method = c("hybrid"))
-  plot(segment_tmpCNA)
+  segToPlot <- segment_tmpCNA
+  segToPlot$output$seg.mean[which(segToPlot$output$seg.mean < -4)] <- -4
+  segToPlot$output$seg.mean[which(segToPlot$output$seg.mean > 4)] <- 4
+  segToPlot$data[[3]][which(segToPlot$data[[3]] < -4)] <- -4
+  segToPlot$data[[3]][which(segToPlot$data[[3]] > 4)] <- 4
+  plot(segToPlot, ylim=c(-4,4))
   
   tmpCalls <- segments.p(segment_tmpCNA)
   #tmpCalls_filt <- tmpCalls[which(abs(tmpCalls$seg.mean) > .2),]

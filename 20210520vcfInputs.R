@@ -1,16 +1,13 @@
-#!/usr/bin/env Rscript
-.libPaths(c("/home/kevhu/R/x86_64-pc-linux-gnu-library/3.2",.libPaths()))
-
 library(jsonlite);
 library(stringr);
 
 #pathToZues <- "/mnt/DATA3/Zeus_data_dump/";
-pathToYoda <- "/mnt/DATA3/Yoda_data_dump/";
+#pathToYoda <- "/mnt/DATA3/Yoda_data_dump/";
 pathToEros <- "/mnt/DATA3/eros_tmp/";
-pathToCetus <- "/mnt/DATA3/cetus_data_dump/";
+#pathToCetus <- "/mnt/DATA3/cetus_data_dump/";
 
-listofSequencers <- c(pathToYoda, pathToEros, pathToCetus);
-
+#listofSequencers <- c(pathToYoda, pathToEros, pathToCetus);
+listofSequencers <- c(pathToEros);
 
 listOfBeds <- NULL
 
@@ -80,7 +77,7 @@ for (i in seq_along(mouseBeds$summaryFile)) {
   for (j in seq_along(ln1)) {
     tmpLn1 <- str_remove(ln1[j], "/IonXpress.*")
     tmpLn1 <- paste0(tmpLn1, "/",tmpTable$Sample.Name[j],".vcf.gz")
-    #tmpLn1 <- paste0("/home/kevhu/scripts/newMousePanelPipeline/vcfs/", str_replace(tmpLn1, "\\.", mouseBeds$reports[i]))
+    #tmpLn1 <- paste0("/mnt/DATA6/mouseData/vcfs/", str_replace(tmpLn1, "\\.", mouseBeds$reports[i]))
     tmpLn1 <- paste0("./", str_replace(tmpLn1, "\\.", mouseBeds$reports[i]))
     print(tmpLn1)
     ln3 <- c(ln3, tmpLn1)
@@ -98,7 +95,7 @@ print("finished list of input for copy - done")
 ### from list above I iteratre and make a if exist function
 ### setdir of newMousePipeline - separate dir for vcfs?
 
-setwd("/home/kevhu/scripts/newMousePanelPipeline/vcfs/")
+setwd("/mnt/DATA6/mouseData/vcfs/")
 
 for (i in 1:nrow(cpTable)) {
   print(i)
@@ -112,7 +109,7 @@ for (i in 1:nrow(cpTable)) {
   }
 }
 
-setwd("/home/kevhu/scripts/newMousePanelPipeline/vcfs/")
+setwd("/mnt/DATA6/mouseData/vcfs/")
 for (i in 1:nrow(mouseBeds)) {
   setwd(mouseBeds$reports[i])
   print(getwd())
@@ -120,7 +117,7 @@ for (i in 1:nrow(mouseBeds)) {
     bedName <- sub(x = mouseBeds$bed[i], pattern = ".*local_beds/", replacement = "")
     writeLines(con = "bedfile.txt", text = bedName)
   }
-  setwd("/home/kevhu/scripts/newMousePanelPipeline/vcfs/")
+  setwd("/mnt/DATA6/mouseData/vcfs/")
 }
 
 partFullPath <- getwd()
@@ -129,11 +126,11 @@ vcfList <- sub(vcfList, pattern = "\\.", replacement = partFullPath)
 snakeFileOut <- sub(x = vcfList, pattern = "\\.vcf\\.gz", replacement = "")
 tableForSnakemake <- data.frame("filename" = snakeFileOut, stringsAsFactors = FALSE)
 
-reportName <- str_remove(tableForSnakemake$filename, "/home/kevhu/scripts/newMousePanelPipeline/vcfs/")
+reportName <- str_remove(tableForSnakemake$filename, "/mnt/DATA6/mouseData/vcfs/")
 reportName <- str_remove(reportName, "/.*")
 
 tableForSnakemake$report <- reportName
 ### maybe append instead of rewriting later ..
-write.table(tableForSnakemake, "/home/kevhu/scripts/newMousePanelPipeline/mouseVcfTable.txt", sep = "\t",
+write.table(tableForSnakemake, "/mnt/DATA6/mouseData/mouseVcfTable.txt", sep = "\t",
             quote = FALSE, row.names = FALSE, col.names = TRUE)
 

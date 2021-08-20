@@ -1,25 +1,13 @@
+### normalizing for tumor content values this way is not great since, I'm normalizing the 
+### copy-number ratio there is just an increase in all copy-number
 
+### need to test if I do z-test on log2 values - do distribution of the p-values change much?
+### since Z-score attempts to put things into a z-distribution would doing it on log2 values
+### change it that much? - should actually be more strict since you're reducing a lot of the 
+### variability when doing the log transformation
+
+library(stringr)
 args <- commandArgs(trailingOnly=TRUE);
-
-#args <- c("/mnt/DATA4/kevhu/tmp2/amplicon.GCinput.txt", "/mnt/DATA4/kevhu/tmp2/sampleInfo.input.txt", "/mnt/DATA4/kevhu/tmp2/amplicon.combinedCoverage.input.txt",
-#          "--min-amplicons-per-gene=3")
-
-args <- c("/mnt/DATA4/kevhu/tmp3/amplicon.GCinput.txt", "/mnt/DATA4/kevhu/tmp3/sampleInfo.input.txt", "/mnt/DATA4/kevhu/tmp3/amplicon.combinedCoverage.input.txt",
-          "--min-amplicons-per-gene=3")
-
-args <- c("/mnt/DATA4/kevhu/choLab/20191104mouseSamps/cnCalls/amplicon.GCinput.txt", "/mnt/DATA4/kevhu/choLab/20191104mouseSamps/cnCalls/sampleInfo.input.txt", "/mnt/DATA4/kevhu/choLab/20191104mouseSamps/cnCalls/amplicon.combinedCoverage.input.txt",
-          "--min-amplicons-per-gene=3")
-
-
-args <- c("/mnt/DATA4/kevhu/choLab/20200301analysis/amplicon.GCinput.txt", "/mnt/DATA4/kevhu/choLab/20200301analysis/sampleInfo.input.txt",
-          "/mnt/DATA4/kevhu/choLab/20200301analysis/amplicon.combinedCoverage.input.txt",
-          "--min-amplicons-per-gene=3")
-
-
-args <- c("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-144-NEN_OCAP_2_361_357/amplicon.GCinput.txt",
-          "/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-144-NEN_OCAP_2_361_357/sampleInfo.input.txt",
-          "/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-144-NEN_OCAP_2_361_357/amplicon.combinedCoverage.input.txt",
-          "--min-amplicons-per-gene=3")
 
 showQ <- TRUE;
 showZ <- FALSE;
@@ -28,7 +16,6 @@ colorSigGenesMaxQ <- 0.01;
 labelSigGenesOnly <- FALSE;
 minAmpliconsPerGene <- 4;
 noisyAmpliconQuantile <- 0.05;
-#noisyAmpliconQuantile <- 0.00;
 
 args <- as.list(args);
 
@@ -46,6 +33,7 @@ parseFlag <- function(prefix, flag, castFn) {
   }
   return(ret);
 }
+
 
 j <- 0;
 for (i in 1:length(args)) {
@@ -111,7 +99,10 @@ if (length(args) < 3) {
 ampliconInfoFilename <- args[1];
 sampleInfoFilename <- args[2];
 readCountsFilename <- args[3];
-variantCallsFilename <- if (length(args) >= 4) args[4] else "(none)";
+tcCorrectionFilename <- args[4];
+variantCallsFilename <- if (length(args) >= 5) args[5] else "(none)";
+
+#cat("## Arguments:", tcCorrectionFilename, "\n";)
 
 cat("## Color significant genes?:", colorSigGenes, "\n");
 if (colorSigGenes) {
@@ -125,6 +116,7 @@ cat("## Min. amplicons per gene:", minAmpliconsPerGene, "\n");
 cat("## Amplicon info filename:", ampliconInfoFilename, "\n");
 cat("## Sample info filename:", sampleInfoFilename, "\n");
 cat("## Read counts filename:", readCountsFilename, "\n");
+cat("## Tumor correction filename:", tcCorrectionFilename, "\n");
 cat("## Variant calls filename:", variantCallsFilename, "\n");
 cat("\n");
 
@@ -134,7 +126,7 @@ getGeneInfo <- function(df, cols=c("red", "green", "orange", "blue", "purple")) 
   geneInfo <- data.frame(Gene=genes, 
                          MinIndex = sapply(genes, function(g) min(df$AmpliconIndex[df$Gene==g])),
                          MaxIndex = sapply(genes, function(g) max(df$AmpliconIndex[df$Gene==g])),
-                         ChromNum = as.numeric(sapply(genes, function(g) min(df$ChromNum[df$Gene==g]))),
+                         ChromNum = sapply(genes, function(g) min(df$ChromNum[df$Gene==g])),
                          NumProbes = sapply(genes, function(g) sum(1*(df$Gene==g))),
                          Label = rep("", length(genes)),
                          GeneNum = 1:length(genes),
@@ -185,7 +177,6 @@ dfRaw <- read.table(readCountsFilename, header=TRUE, sep=",", stringsAsFactors =
 if (length(which(duplicated(colnames(dfRaw)))) > 1) {
   dfRaw <- dfRaw[,-which(duplicated(colnames(dfRaw)))]
 }
-
 
 cat("...read table with", nrow(dfRaw), "rows.\n");
 
@@ -273,13 +264,10 @@ if(length(c(badSamps1, badSamps2)) > 0){
   allNames <- allNames[-which(allNames %in% c(badSamps1, badSamps2))]
 }
 
-
 ## Merge the amplicon information into the read count table
 df <- dfRaw;
 ###my added one-liner
 #df[is.na(df)] <- 0
-
-
 
 df <- merge(df, ampliconInfo, by="AmpliconId")
 df <- df[order(df$AmpliconIndex),];
@@ -321,6 +309,9 @@ minPoolCount <- quantile(df$TotalPool, noisyAmpliconQuantile);
 df <- df[df$TotalPool >= minPoolCount,];
 cat("...reduced to", nrow(df), "amplicons; dropped all with less than", minPoolCount, "total pool reads.\n");
 
+# df2 - used to keep SNP markers
+df2 <- df
+
 ## Drop amplicons in genes with a low total probe count
 keepGenes <- geneInfo[geneInfo$NumProbes >= minAmpliconsPerGene,]$Gene;
 df <- df[df$Gene %in% keepGenes,];
@@ -352,7 +343,6 @@ cat("...analyzing", nrow(geneInfo), "genes.\n");
 ## Merge geneInfo into the read count table
 df <- merge(df, geneInfo, by=c("Gene", "ChromNum"));
 df <- df[order(df$AmpliconIndex),];
-df$ChromNum <- as.numeric(df$ChromNum)
 rownames(df) <- df$AmpliconId;
 #write.table(df,"df_amps.txt",quote=FALSE,row.names=FALSE)
 
@@ -393,7 +383,6 @@ for (x in allNames) {
 }
 
 
-
 ### Do a lowess corecction for the log likelihood - why use log likelihood - via wikiepdia stated below
 ###Finding the maximum of a function often involves taking the derivative of a function and solving for 
 ###the parameter being maximized, and this is often easier when the function being maximized is a
@@ -420,10 +409,37 @@ geneEstSampleRelErr <- geneEst;
 sampleMedianGeneEst <- dfResidRatio;
 #write.table(df,"df_master.txt",quote=FALSE)
 
-dfCorrectedCounts <- dfCorrectionRatio;
-tmp <- dfCorrectionRatio;
 
-dfNormals <- df[, poolNames]
+# 20210601: KH
+# for the gc corrected counts for all amplicons minus the bottom fifth percentile in terms of pooled reads
+# Only thing I did was create a parallel process for df2 similar to df 1 without dropping features with amplicons less than 3
+
+if (normalPool) {
+  df2$Weights <- pmax(1, df2$TotalPool) / sum(df2$TotalPool);
+} else {
+  tmpFrac <- df2[,poolNames];
+  for (poolName in poolNames) {
+    tmpFrac[[poolName]] <- tmpFrac[[poolName]] / sum(tmpFrac[[poolName]]);
+  }
+  df2$Weights <- apply(tmpFrac[,poolNames], 1, median);
+}
+
+dfExpected2 <- df2;
+for (x in allNames) {
+  dfExpected2[[x]] <- df2$Weights * sum(df2[[x]]);
+}
+
+dfResidRatio2 <- df2;
+for (x in allNames) {
+  dfResidRatio2[[x]] <- pmax(1, df2[[x]]) / dfExpected2[[x]];
+}
+
+dfCorrectionRatio2 <- df2;
+for (x in allNames) {
+  dfCorrectionRatio2[[x]] <- exp(lowessCorrect(log(dfResidRatio2[[x]]), df2$GC));
+}
+
+dfCorrectedCounts <- dfCorrectionRatio2;
 
 for (x in allNames) {
   wts <- df$Weights;
@@ -431,8 +447,10 @@ for (x in allNames) {
   uncorrectedCounts <- dfResidRatio[[x]];
   correctedCounts <- dfResidRatio[[x]] / dfCorrectionRatio[[x]];
   
-  ### new for segmentation
-  dfCorrectedCounts[[x]] <- correctedCounts;
+  
+  ### new for segmentation - the var2's are based off of amp-unfiltered df2
+  correctedCounts2 <- dfResidRatio2[[x]] / dfCorrectionRatio2[[x]];
+  dfCorrectedCounts[[x]] <- correctedCounts2;
   
   ### divide the likelihood ratio by corrected likelihood ratio from lowess (why do you divide?)
   ### isn't lowess just a regression techinique, so shouldn't you be subtracting the residuals
@@ -457,10 +475,6 @@ for (x in allNames) {
     
   }
   sampleMedianGeneEst[[x]] <- rep(median(geneEst[[x]]), length(sampleMedianGeneEst[[x]]));
-  #if (x == "MG_21X53") {
-  #  print(geneEst[[x]])
-  #  print(median(geneEst[[x]]))
-  #}
   geneEst[[x]] <- geneEst[[x]] / median(geneEst[[x]]);
   rawGeneEst[[x]] <- rawGeneEst[[x]] / median(rawGeneEst[[x]]);
   ###This is where I should run the SVA + regression for correction 
@@ -470,8 +484,9 @@ for (x in allNames) {
   ### gene copy numbers there are
 }
 
-#normalAmpMedian <- apply(dfCorrectedCounts[, poolNames], 1, median)
-#normalAmpMean <- apply(dfCorrectedCounts[, poolNames], 1, mean)
+### these counts actually work for segmentation - idea is to make a copy-number raitos and denom is mean of normals (after correctedcounts and gc-correction)
+
+
 
 if (length(poolNames)>1) {
   normalAmpMean <- apply(dfCorrectedCounts[, poolNames], 1, mean);
@@ -487,14 +502,11 @@ for (x in allNames) {
 }
 
 
-dfZscoresCounts <- df
+dfZscoresCounts <- df2
 for (x in allNames) {
-  dfZscoresCounts[[x]] <- df[[x]]/dfCorrectionRatio[[x]]
+  dfZscoresCounts[[x]] <- dfResidRatio2[[x]]/dfCorrectionRatio2[[x]]
 }
 
-
-### did commente below to see average deviation from zero and mean did better
-mean((1 - apply(dfCorrectedCounts2[,poolNames], 2, mean)))
 
 ## Output plotted amplicon-level CN ratio - DHH, 2015/12/10
 dfPlotValue <- df;
@@ -516,10 +528,56 @@ if (length(poolNames)>1) {
   genePoolSD <- data.frame(Gene=genes, SD=rep(NA, length(genes)));
 }
 
+psampMultiple <- function(samps, ylim=NULL, cex.axis=0.75, ax=TRUE, main=NA) {
+  geneSpacing <- 0;
+  chromSpacing <- 0;
+  if (is.na(main)) main="";
+  
+  xlim <- c(0, nrow(ampliconInfo) + 1 + geneSpacing*(1 + nrow(geneInfo)) + 23*chromSpacing);
+  colors = rep(c("black", "purple4", "purple", "blue", "darkturquoise", "green4", "green", "goldenrod1", "firebrick1"), 10);
+  
+  samp <- samps[length(samps)];
+  plot(y=log2(dfResidRatio[[samp]] / dfCorrectionRatio[[samp]] / sampleMedianGeneEst[[samp]]), x=(geneSpacing*df$GeneNum + chromSpacing*(df$ChromNum-1) + df$AmpliconIndex), col=colors[length(samps)], cex=0.08, xaxt="n", main=main, ylab="Log2(CN Ratio)", xlim=xlim, xlab="", ylim=ylim, xaxs="i", cex.axis=0.75, cex.lab=0.75);
+  
+  for (i in (length(samps)-1):1) {
+    samp <- samps[i];
+    points(y=log2(dfResidRatio[[samp]] / dfCorrectionRatio[[samp]] / sampleMedianGeneEst[[samp]]), x=(geneSpacing*df$GeneNum + chromSpacing*(df$ChromNum-1) + df$AmpliconIndex), col=colors[i], cex=0.08);
+  }
+  
+  for (i in 1:length(samps)) {
+    samp <- samps[i];
+    for (gene in c("ERBB2", "DDR2", "RB1")) {
+      lines(x=geneInfo[gene, c("MinIndex", "MaxIndex")] + geneSpacing*c(-0.5,0.5) + geneSpacing*geneInfo[gene, "GeneNum"] + chromSpacing*geneInfo[gene, "ChromNum"], y=rep(log2(geneEst[gene, samp]),2), col=colors[i]);
+    }
+  }
+  
+  legend(x=30, y=5.0, fill=colors[9:1], legend=paste(c("8", "16", "24", "32", "40", "56", "64", "72", "80"), "%")[9:1], cex=0.5, border="white");
+  
+  if (ax && cex.axis > 0) {
+    axis(1, at=0.5*(geneInfo$MinIndex+geneInfo$MaxIndex)+geneSpacing*geneInfo$GeneNum+chromSpacing*(geneInfo$ChromNum-1), labels=geneInfo$Gene, las=2, cex.axis=cex.axis, mgp=c(1,0.5,0), tick=FALSE);
+  }
+  
+  chromMin <- rep(0, 24);
+  chromMax <- rep(0, 24);
+  chromProbes <- rep(0, 24);
+  for (i in 1:24) {
+    dfChrom <- df[df$ChromNum==i,];
+    chromProbes[i] <- length(dfChrom$GeneNum);
+    if (chromProbes[i] > 0) {
+      chromMax[i] <- max(geneSpacing*dfChrom$GeneNum + chromSpacing*(dfChrom$ChromNum-1) + dfChrom$AmpliconIndex);
+      chromMin[i] <- min(geneSpacing*dfChrom$GeneNum + chromSpacing*(dfChrom$ChromNum-1) + dfChrom$AmpliconIndex);
+    }
+  }
+  
+  for (i in 1:20) {
+    if (chromProbes[i] > 0) {
+      text(x=(chromMin[i]+chromMax[i])*0.5, y=ylim[1], col="black", labels=paste(i, sep=""), cex=0.5, srt=90);
+    }
+  }
+}
 
-
-psamp <- function(samp, ylim=NULL, cex.axis=0.75, ax=TRUE, main=NA, analysisResults=NULL) {
-  geneSpacing <- 40;
+psamp <- function(samp, ylim=NULL, cex.axis=0.25, ax=TRUE, main=NA, analysisResults=NULL) {
+  geneSpacing <- 80;
   chromSpacing <- 0;
   if (is.na(main)) main=samp;
   
@@ -529,10 +587,10 @@ psamp <- function(samp, ylim=NULL, cex.axis=0.75, ax=TRUE, main=NA, analysisResu
   
   ## c(0,nrow(ampliconInfo)+geneSpacing*nrow(geneInfo)+chromSpacing*23), xlab="", ylim=ylim);
   
-  plot(y=log2(dfResidRatio[[samp]] / dfCorrectionRatio[[samp]] / sampleMedianGeneEst[[samp]]), x=(geneSpacing*df$GeneNum + chromSpacing*(as.numeric(df$ChromNum)-1) + df$AmpliconIndex), col=df$Color, cex=0.3, xaxt="n", main=main, ylab="Log2(CN Ratio)", xlim=xlim, xlab="", ylim=ylim, xaxs="i", cex.axis=0.9, cex.lab=0.9);
+  plot(y=log2(dfResidRatio[[samp]] / dfCorrectionRatio[[samp]] / sampleMedianGeneEst[[samp]]), x=(geneSpacing*df$GeneNum + chromSpacing*(df$ChromNum-1) + df$AmpliconIndex), col=df$Color, cex=0.3, xaxt="n", main=main, ylab="Log2(CN Ratio)", xlim=xlim, xlab="", ylim=ylim, xaxs="i", cex.axis=0.9, cex.lab=0.9);
   
   for (gene in geneInfo$Gene) {
-    lines(x=geneInfo[gene, c("MinIndex", "MaxIndex")] + geneSpacing*c(-0.5,0.5) + geneSpacing*geneInfo[gene, "GeneNum"] + chromSpacing* as.numeric(geneInfo[gene, "ChromNum"]), y=rep(log2(geneEst[gene, samp]),2));
+    lines(x=geneInfo[gene, c("MinIndex", "MaxIndex")] + geneSpacing*c(-0.5,0.5) + geneSpacing*geneInfo[gene, "GeneNum"] + chromSpacing*geneInfo[gene, "ChromNum"], y=rep(log2(geneEst[gene, samp]),2));
   }
   
   if (ax && cex.axis > 0) {
@@ -556,7 +614,7 @@ psamp <- function(samp, ylim=NULL, cex.axis=0.75, ax=TRUE, main=NA, analysisResu
         if (labelSigGenesOnly) { tmp[cols=="black"] <- ""; }
         geneAxisLabels <- paste(geneAxisLabels, tmp);
       }
-      if (showZ && showQ) { cex.axis <- 0.8*cex.axis; }
+      if (showZ && showQ) { cex.axis <- 1.0*cex.axis; }
     }
     labelPositions = 0.5*(geneInfo$MinIndex+geneInfo$MaxIndex)+geneSpacing*geneInfo$GeneNum+chromSpacing*(geneInfo$ChromNum-1);
     Map(function(x,y,z) axis(1, at=x, col.axis=y, labels=z, lwd=0, cex.axis=cex.axis, mgp=c(1,0.5,0), las=2), labelPositions, cols, geneAxisLabels);
@@ -588,30 +646,133 @@ psamp <- function(samp, ylim=NULL, cex.axis=0.75, ax=TRUE, main=NA, analysisResu
   }
 }
 
+psampUncorrected <- function(samp, ylim=NULL, cex.axis=0.75) {
+  plot(y=log2(dfResidRatio[[samp]] / median(dfResidRatio[[samp]])), x=(10*df$GeneNum + df$AmpliconIndex), col=df$Color, cex=20.0*sqrt(df$Weights), xaxt="n", main=samp, ylab="Log2(Raw CN Ratio)", xlab="", ylim=ylim);
+  
+  for (gene in geneInfo$Gene) {
+    lines(x=geneInfo[gene, c("MinIndex", "MaxIndex")] + c(-5,5) + 10*geneInfo[gene, "GeneNum"], y=rep(log2(rawGeneEst[gene, samp]),2));
+  }
+  
+  if (cex.axis > 0) {
+    axis(1, at=0.5*(geneInfo$MinIndex+geneInfo$MaxIndex)+10*geneInfo$GeneNum, labels=geneInfo$Gene, las=2, cex.axis=cex.axis, mgp=c(1,0.5,0), tick=FALSE);
+  }
+}
+
+pmultsnps <- function(samps, ax=TRUE, shiftByRatio=1.0) {
+  
+  tmp <- merge(merge(merge(variantCounts[variantCounts$Sample %in% samps,], variants), ampliconInfo, by="AmpliconId"), geneInfo, by="Gene")
+  
+  plot(y=tmp$Minor.Allele.Frac, x=tmp$AmpliconIndex + 10*tmp$GeneNum, col=tmp$Color, cex=0.05*sqrt(tmp$Total.Cov), xaxt="n", xlim=c(0,nrow(ampliconInfo)+10*nrow(geneInfo)), ylim=c(0,0.5), pch=tmp$SymbolType, ylab="Minor Allele Fraction", xlab="");
+  
+  ###point of having minor allele freqs. (?)
+  
+  if (ax) {
+    axis(1, at=0.5*(geneInfo$MinIndex+geneInfo$MaxIndex)+10*geneInfo$GeneNum, labels=geneInfo$Gene, las=2, cex.axis=0.75, mgp=c(1,0.5,0), tick=FALSE);
+  }
+  
+  for (gene in geneInfo$Gene) {
+    lines(x=rep(geneInfo[gene, "MinIndex"] + 10*geneInfo[gene,"GeneNum"] - 5, 2), y=c(0,0.5), col="grey");
+  }
+}
+
+
+psnps <- function(samp, ax=TRUE, shiftByRatio=1.0) {
+  
+  tmp <- merge(merge(merge(variantCounts[variantCounts$Sample == samp,], variants), ampliconInfo, by="AmpliconId"), geneInfo, by="Gene")
+  
+  geneSpacing <- 40;
+  chromSpacing <- 0;
+  
+  xlim <- c(0, nrow(ampliconInfo) + 1 + geneSpacing*(1 + nrow(geneInfo)) + 23*chromSpacing);
+  
+  plot(y=tmp$Minor.Allele.Frac, x=tmp$AmpliconIndex + geneSpacing*tmp$GeneNum, col=tmp$Color, cex=0.05*sqrt(tmp$Total.Cov), xaxt="n", xlim=xlim, ylim=c(0,0.5), pch=tmp$SymbolType, ylab="Minor Allele Fraction", xlab="", xaxs="i");
+  
+  if (ax) {
+    labelPositions = 0.5*(geneInfo$MinIndex+geneInfo$MaxIndex)+geneSpacing*geneInfo$GeneNum+chromSpacing*(geneInfo$ChromNum-1);
+    axis(1, at=labelPositions, labels=geneInfo$Gene, las=2, cex.axis=0.75, mgp=c(1,0.5,0), tick=FALSE);
+  }
+  
+  for (gene in geneInfo$Gene) {
+    lines(x=rep(geneInfo[gene, "MinIndex"] + geneSpacing*geneInfo[gene,"GeneNum"] - 0.5*geneSpacing, 2), y=c(0,0.5), col="grey");
+  }
+  
+  alleleFreqFromCN <- function(cn) {
+    if (cn>=1.0) { return(1.0 / (2.0*cn)); }
+    return((2.0*cn - 1) / (2.0*cn));
+  }
+  
+  for (gene in geneInfo$Gene) {
+    lines(x=geneInfo[gene, c("MinIndex", "MaxIndex")] + geneSpacing*c(-0.5,0.5) + geneSpacing*geneInfo[gene, "GeneNum"], y=rep(alleleFreqFromCN(geneEst[gene, samp]*shiftByRatio), 2), col="black", lty=(if (geneEst[gene, samp]*shiftByRatio>1.0) "dotted" else "solid"));
+  }
+}
+
+pboth <- function(samp, ylim=NULL, shiftByRatio=1.0, cex.axis=0.75, analysisResults=NULL) {
+  def.par <- par(no.readonly = TRUE);
+  layout(matrix(c(1,1,2),3,1,byrow=TRUE));
+  par(mar=c(4,5,3,2));
+  psamp(samp, ylim=ylim, analysisResults=analysisResults, cex.axis=cex.axis);
+  par(mar=c(2,5,0,2));
+  psnps(samp, ax=FALSE, shiftByRatio=shiftByRatio);
+  par(def.par);
+}
+
+pCorrectedAndUncorrected <- function(samp, ylim=NULL) {
+  def.par <- par(no.readonly = TRUE);
+  layout(matrix(c(1,1,1,1,2,2,2),7,1,byrow=TRUE));
+  par(mar=c(4,5,3,2));
+  psampUncorrected(samp, ylim=ylim);
+  par(mar=c(2,5,0,2));
+  psamp(samp, ax=FALSE, main="", ylim=ylim);
+  par(def.par);
+}
+
+binomPvals <- function(samp, genes) {
+  
+  tmp <- merge(merge(merge(variantCounts[variantCounts$Sample == samp,], variants), ampliconInfo, by="AmpliconId"), geneInfo, by="Gene");
+  tmp <- tmp[tmp$Gene %in% genes, c("Minor.Allele.Frac", "Total.Cov")];
+  tmp$Minor.Cov <- round(tmp$Total.Cov * tmp$Minor.Allele.Frac);
+  # tmp <- tmp[tmp$Minor.Allele.Frac > 0.03,];
+  return(tmp);
+}
+
+
+dirToWrite <- str_remove(ampliconInfoFilename, "amplicon.GCinput.txt")
+#print(dirToWrite)
+
+# 20210719: edited to produce tc corrected calls and plots
+dfTc <- read.table(tcCorrectionFilename, header = TRUE, sep = "\t", stringsAsFactors = FALSE,
+                   check.names = FALSE);
+tmpColnames <- colnames(geneEst)
+tmpColnames <- str_remove(tmpColnames, "_MG_X.*")
+tmpColnames <- str_remove(str_remove(tmpColnames, "^X"), "_X.*")
+tmpColnames <- tolower(str_remove_all(str_remove_all(str_remove(tmpColnames, "X.*"), "_"), "\\."))
+tmpColnames  <- str_remove(tmpColnames, "o")
+tmpColnames <- str_replace_all(tmpColnames, " ", "")
+tcDf <- read.table(tcCorrectionFilename, sep = "\t",
+                   header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
+matchingTc <- tcDf$tc[match(tmpColnames, tcDf$sample)]
+matchingIdx <- 1:ncol(geneEst)
+matchingIdx <- matchingIdx[-which(is.na(matchingTc))]
+geneEst[,2:ncol(geneEst)] <- log2(geneEst[,2:ncol(geneEst)])
+geneEst[,matchingIdx] <- sweep(geneEst[,matchingIdx], 2, matchingTc[matchingIdx], "/")
+
+
 
 
 combinedTable <- NULL
-# tmpColnames <- colnames(geneEst)
-# tmpColnames <- str_remove(tmpColnames, "_MG_X.*")
-# tmpColnames <- str_remove(str_remove(tmpColnames, "^X"), "_X.*")
-# tmpColnames <- tolower(str_remove_all(str_remove_all(str_remove(tmpColnames, "X.*"), "_"), "\\."))
-# tmpColnames  <- str_remove(tmpColnames, "o")
-# tcDf <- read.table("/mnt/DATA5/tmp/kev/misc/20210718hgscTcDf.txt", sep = "\t",
-#                    header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
-# matchingTc <- tcDf$tc[match(tmpColnames, tcDf$sample)]
-# geneEst[,2:ncol(geneEst)] <- sweep(geneEst[,2:ncol(geneEst)], 2, matchingTc[2:length(matchingTc)], "/")
-
-### just do this to regular geneEst[,2:ncol(geneEst)] instead of making geneEst2
-
 for (samp in allNames) {
   
-  analysisResults <- data.frame(Gene=genes, Sample=rep(samp, length(genes)), NumProbes=geneInfo$NumProbes, CopyNumberRatio=geneEst[,samp], RawCopyNumberRatio=rawGeneEst[,samp], ProbeError=geneEstSampleRelErr[,samp], PoolError=genePoolSD$SD, ZScore=rep(0.0, length(genes)), Call=rep(0, length(genes)), Sig=rep(0, length(genes)), Log10PValue=rep(0.0, length(genes)));
+  analysisResults <- data.frame(Gene=genes, Sample=rep(samp, length(genes)), NumProbes=geneInfo$NumProbes,
+                                CopyNumberRatio=geneEst[,samp], RawCopyNumberRatio=rawGeneEst[,samp],
+                                ProbeError=geneEstSampleRelErr[,samp], PoolError=genePoolSD$SD,
+                                ZScore=rep(0.0, length(genes)), Call=rep(0, length(genes)), Sig=rep(0, length(genes)),
+                                Log10PValue=rep(0.0, length(genes)));
   rownames(analysisResults) <- genes;
   for (gene in genes) {
     row <- analysisResults[gene,];
     est <- row$CopyNumberRatio;
-    z1 <- (est - 1.) / (row$PoolError);
-    z2 <- if (row$NumProbes > 1) { (est - 1.) / (row$ProbeError * est) } else NA;
+    z1 <- (est - 0.) / (row$PoolError);
+    z2 <- if (row$NumProbes > 1) { (est - 0.) / (row$ProbeError * est) } else NA;
     z <- min(abs(z1), abs(z2));
     if (is.na(z1)) {
       z <- abs(z2);
@@ -638,56 +799,20 @@ for (samp in allNames) {
     # monotonicity correction
     analysisResults[i, "Log10QValue"] = min(analysisResults[i:length(genes), "Log10QValue"]);
   }
-  setwd("/mnt/DATA5/tmp/kev/testOCAP/")
-  pdf(paste("out.", samp, ".pdf", sep=""), width=7 * 1.25, height=5 * 1.25, useDingbats=FALSE);
+  setwd(dirToWrite)
+  pdf(paste("out.", samp, "_tc.pdf", sep=""), width=7 * 2, height=5 * 2, useDingbats=FALSE);
   if (variantData) pboth(samp, cex.axis=0.5, ylim=c(-2,4), analysisResults=analysisResults) else psamp(samp, cex.axis=0.5, ylim=c(-4,4), analysisResults=analysisResults);
   dev.off();
   write.table(format(analysisResults, scientific=FALSE, digits=4), file=paste("calls.", samp, "_tc.txt", sep=""), quote=FALSE, sep="\t", row.names=FALSE);
   combinedTable <- rbind(combinedTable, format(analysisResults, scientific=FALSE, digits=4))
 }
-write.table(combinedTable, file=paste("combinedCalls.txt"), quote=FALSE, sep="\t", row.names=FALSE);
+
+
+
+write.table(combinedTable, file="combinedCalls_tc.txt", quote=FALSE, sep="\t", row.names=FALSE);
+write.table(geneEst, file="cnMatrix_gene_tc.txt", quote=FALSE, sep="\t", row.names=FALSE, col.names = TRUE);
+write.table(dfCorrectedCounts2, file = "cnAmplicon_matrix_tc.txt", quote=FALSE, sep="\t", row.names=FALSE, col.names = TRUE);
+write.table(dfZscoresCounts, file = "gcCorrectedCounts_matrix_tc.txt", quote=FALSE, sep="\t", row.names=FALSE, col.names = TRUE);
 
 
 warnings();
-
-
-
-
-
-
-source("/mnt/DATA4/kevhu/scripts/20181205newpsampFunction.R")
-
-
-Color2 <- NULL
-dfColorList <- c("firebrick1","darkolivegreen3","goldenrod2","dodgerblue4","darkorchid4")
-k <- 0;
-for(i in seq_along(unique(df$Gene))){
-  k <- k + 1;
-  Color2[which(df$Gene == unique(df$Gene)[i])] <- dfColorList[k]
-  if(k == 5){
-    k <- 0;
-  }
-}
-
-df$Color2 <- Color2
-
-for (samp in allNames) {
-  setwd("/mnt/DATA4/kevhu/tmp2/")
-  pdf(file = paste("newsamp.", samp, ".pdf",sep = ""),onefile = TRUE, useDingbats = FALSE,  width=7 * 1.25, height=5 * 1.25)
-  newpsamp(samp)
-  dev.off()
-  rm(testggplot)
-}
-
-
-warnings();
-
-
-
-
-
-
-
-
-
-

@@ -224,6 +224,7 @@ allAnnoNew_goodsampsExonic2 <- allAnnoNew_goodsampsExonic[-grep("substitution", 
 finalTable_noSubs <- rbind(allAnnoNew_goodsampsExonic2, deletions_goodsamps)
 finalSubs <- rbind(additionalSubs, indelSub)
 
+
 write.table(finalTable_noSubs, "/mnt/DATA5/tmp/kev/misc/20210215_mgpVarList_noSub.txt", sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
 write.table(finalSubs, "/mnt/DATA5/tmp/kev/misc/20210215_mgpVarList_Subs.txt", sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
 

@@ -1,0 +1,39 @@
+### another script copies vcf and indexes into proper directories + proper index
+### this script should be used to create a separate annotation file for each vcf
+
+
+import pandas as pd
+data = pd.read_csv("/mnt/DATA6/mouseData/mouseVcfTable.txt", sep='\t')
+filename = data['filename']
+
+
+rule all:
+    input:
+        expand("{id}.mm10_multianno.txt", id = filename)
+
+# norm to split var and left align indels
+rule norm:
+    input:
+        "{id}.vcf.gz"
+    output:
+        "{id}.norm.vcf.gz"
+    shell:
+        "bcftools norm -f /mnt/DATA5/tmp/kev/tmpDbs/genome/mm10/mm10.fa -m- {input} -Oz -o {output} && tabix -p vcf {output}"
+
+rule convert:
+    input:
+        "{id}.norm.vcf.gz"
+    output:
+        "{id}.avinput"
+    shell:
+        "/opt/annovar/convert2annovar.pl --format vcf4old --includeinfo {input} > {output}"
+
+rule annotate:
+    input:
+        "{id}.avinput"
+    output:
+        "{id}.mm10_multianno.txt"
+    params:
+        prefix="{id}"
+    shell:
+        "perl /opt/annovar/table_annovar.pl {input} /opt/mousedb/ --buildver mm10 --outfile {params.prefix} --tempdir /mnt/tmp/ -operation g,f -protocol refGene,mgp.v6.combinedMouseFilt --otherinfo --remove"

@@ -9,6 +9,9 @@ library(biomaRt)
 
 knownCanHg38 <- read.table("/home/kevhu/data/20201015hg38UcscXrefKnownCan.txt", stringsAsFactors = FALSE,
                            sep = "\t", header = TRUE)
+knownCanHg19 <- read.table("/home/kevhu/data/20210604hg19KnownCan.txt", stringsAsFactors = FALSE,
+                           sep = "\t", header = TRUE)
+
 knownCanMm10 <- read.table("/home/kevhu/data/20201020mm10UcscXrefKnownCan.txt", stringsAsFactors = FALSE,
                            sep = "\t", header = TRUE)
 
@@ -17,6 +20,8 @@ ucsc_txn_ids <- sub(x = knownCanHg38$hg38.knownCanonical.transcript, pattern = "
 ucsc_txn_mm10_ids <- sub(x = knownCanMm10$mm10.knownCanonical.transcript, pattern = "\\..*",
                          replacement = "")
 
+ensemblHg19 <- useMart(biomart="ENSEMBL_MART_ENSEMBL", host="grch37.ensembl.org",
+                       path="/biomart/martservice", dataset="hsapiens_gene_ensembl")
 ensemblHg <- useMart("ensembl", dataset= "hsapiens_gene_ensembl")
 ensemblMm <- useMart("ensembl", dataset = "mmusculus_gene_ensembl") 
 
@@ -81,6 +86,16 @@ cdnaLevelHgUcscFilt <- cdnaLevelHgUcscFilt[which(cdnaLevelHgUcscFilt$chromosome_
 write.table(cdnaLevelHgUcscFilt, "/home/kevhu/data/20210203hg38KnownCanbiomartQuery.txt", sep = "\t",
             quote = FALSE, col.names = TRUE, row.names = FALSE)
 
+
+### hard to find gene symbols in hg19 ucsc - only ucsc based gene symbols
+cdnaLevelHg19 <- getBM(mart = ensemblHg19, attributes = attrHg_prot, filters = "external_gene_name",
+                         values = knownCanHg38$hg38.kgXref.geneSymbol)
+
+cdnaLevelHg19Filt <- cdnaLevelHg19[-which(is.na(cdnaLevelHg19$cdna_coding_start)),]
+cdnaLevelHg19Filt <- cdnaLevelHg19Filt[which(cdnaLevelHg19Filt$chromosome_name %in% chromFilters),]
+
+write.table(cdnaLevelHg19Filt, "/home/kevhu/data/20210604hg19KnownCanbiomartQuery.txt", sep = "\t",
+            quote = FALSE, col.names = TRUE, row.names = FALSE)
 
 
 

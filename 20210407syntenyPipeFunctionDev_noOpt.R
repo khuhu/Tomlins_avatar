@@ -49,10 +49,10 @@ tcga_ov_del <- read.table("/mnt/DATA5/tmp/kev/misc/20210424tcga_ov_del_0.2.bed",
 
 
 # below are the two inputs needed for segmentation
-mouseAmplicons <- read.table("/mnt/DATA5/tmp/kev/newMouse2/cnAmplicon_matrix.txt", sep = "\t",
+mouseAmplicons <- read.table("/mnt/DATA5/tmp/kev/newMouse3/cnAmplicon_matrix.txt", sep = "\t",
                              stringsAsFactors = FALSE, header = TRUE)
 
-zscore_gc_oe_ratios <- read.table("/mnt/DATA5/tmp/kev/newMouse2/gcCorrectedCounts_matrix.txt", sep = "\t",
+zscore_gc_oe_ratios <- read.table("/mnt/DATA5/tmp/kev/newMouse3/gcCorrectedCounts_matrix.txt", sep = "\t",
                                   stringsAsFactors = FALSE, header = TRUE)
 
 
@@ -306,8 +306,9 @@ getFreqBed <- function(amp, del){
 
 #segRes <- NULL
 #segRes <- ampSeg(mouseAmplicons, mouseBedFile)
-#save(segRes, file = "/mnt/DATA5/tmp/kev/misc/20210409mm10SegRes.Robj")
-load(file = "/mnt/DATA5/tmp/kev/misc/20210409mm10SegRes.Robj")
+#save(segRes, file = "/mnt/DATA5/tmp/kev/misc/20210514mm10SegRes.Robj")
+#load(file = "/mnt/DATA5/tmp/kev/misc/20210409mm10SegRes.Robj")
+load(file = "/mnt/DATA5/tmp/kev/misc/20210514mm10SegRes.Robj")
 segZscores <- calcZscore(segRes)
 segZfilt <- segZscoresFilt(segRes, segZscores)
 

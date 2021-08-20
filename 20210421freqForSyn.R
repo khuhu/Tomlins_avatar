@@ -115,9 +115,9 @@ ov_CNA_brca1_noY <- ov_CNA_brca1[-which(ov_CNA_brca1$Chromosome == "24"),]
 colnames(ov_CNA_brca1_noY) <- c("sampleID","chrom", "start.pos",
                                 "end.pos", "n.probes", "mean")
 
-plotFreq(ov_CNA_brca1_noY, thres.gain = 0.2, thres.loss = -0.2)
+#plotFreq(ov_CNA_brca1_noY, thres.gain = 0.2, thres.loss = -0.2)
 
-
+ov_CNA_brca1_noY$n.probes <- NA
 ov_brca1_freq_out <- getFreqData(ov_CNA_brca1_noY)
 ampDels_brca <- ampsDels(ov_brca1_freq_out)
 ov_brca1_amp_bed <- reducingFreqBed(ampDels_brca[[1]],ampDels_brca[[2]])
@@ -135,9 +135,9 @@ ov_CNA_noY <- ov_CNA[-which(ov_CNA$Chromosome == "24"),]
 colnames(ov_CNA_noY) <- c("sampleID","chrom", "start.pos",
                           "end.pos", "n.probes", "mean")
 
-plotFreq(ov_CNA_noY, thres.gain = 0.2, thres.loss = -0.2)
+#plotFreq(ov_CNA_noY, thres.gain = 0.2, thres.loss = -0.2)
 
-
+ov_CNA_noY$n.probes <- NA
 ov_freq_out <- getFreqData(ov_CNA_noY)
 ampDels_ov <- ampsDels(ov_freq_out)
 ov_amp_bed <- reducingFreqBed(ampDels_ov[[1]],ampDels_ov[[2]])

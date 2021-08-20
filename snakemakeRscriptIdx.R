@@ -33,7 +33,7 @@ if (is.null(opt$normals)){
 listOfDirectories <- unname(c(unlist(read.table(file = opt$input, stringsAsFactors = FALSE))))
 normals <- tryCatch(read.table(opt$normals, stringsAsFactors = FALSE, sep = "\t"),
                     error = function(x) return(NULL))
-print(normals)
+# print(normals)
 blacklist <- tryCatch(read.table(opt$blacklist, header = FALSE, stringsAsFactors = FALSE),
                       error = function(x) return(NULL))
 
