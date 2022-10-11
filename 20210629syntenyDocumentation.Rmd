@@ -1,0 +1,476 @@
+---
+title: "Basic script for synteny pipeline"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+## All functions can be found inside sourced script
+## Necessary data tables and libraries will be shown here
+
+
+### Using hg38 for all synteny for now since hg19 syntenic blocks look very similar with a few changes
+### For publicaiton purposes later I'll have to either build a similar db or convert using liftOver
+### liftOVe is a bit tricky since we're lifting over large regions - multiple small scale alignment
+### changes
+
+```{r loading_libs_dat}
+source("/home/kevhu/scripts/20210629allSyntenyFunctions.R")
+
+synteny_hg38mm10 <- read.table("/mnt/DATA6/kevin_recovery/apps/circos/20210401_mm10_hg38_syntenyDf.txt",sep = "\t", stringsAsFactors = FALSE, header = TRUE)
+
+cyto_hg38mm10 <- read.table("/mnt/DATA6/kevin_recovery/apps/circos/20210401_mm10_hg38_cytoDf.txt",
+                            sep = "\t", stringsAsFactors = FALSE, header = FALSE)
+tcga_seg <- read.table("/mnt/DATA5/tmp/kev/tmpDbs/genomicDataCommons/TCGA_mastercalls.abs_segtabs.fixed.txt",sep = "\t", stringsAsFactors = FALSE, header = TRUE)
+
+tcga_ploidy <- read.table("/mnt/DATA5/tmp/kev/tmpDbs/genomicDataCommons/TCGA_mastercalls.abs_tables_JSedit.fixed.txt",sep = "\t", stringsAsFactors = FALSE, header = TRUE)
+
+coad_KAP <- read.table("/mnt/DATA5/tmp/kev/misc/20210628_panCancerCoadKAPIds.txt", sep = "\t",
+                       header = TRUE, stringsAsFactors = FALSE)
+
+coad_KAP$samples <- str_replace_all(coad_KAP$samples, "\\.", "\\-")
+
+coad <- read.table("/mnt/DATA5/tmp/kev/misc/coadread_tcga_pan_can_atlas_2018_clinical_data.tsv", sep = "\t",header = TRUE, stringsAsFactors = FALSE)
+
+segResults <- read.table("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-120-MG_EFD4_BBN_334_304/segResults.txt",header = TRUE, stringsAsFactors = FALSE, sep = "\t")
+
+mouseAmplicons <- read.table("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-120-MG_EFD4_BBN_334_304/cnAmplicon_matrix.txt", sep = "\t",
+                             stringsAsFactors = FALSE, header = TRUE)
+
+zscore_gc_oe_ratios <- read.table("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-120-MG_EFD4_BBN_334_304/gcCorrectedCounts_matrix.txt", sep = "\t",
+                                  stringsAsFactors = FALSE, header = TRUE)
+
+
+mouseNormal <- c("MG_17X49", "MG_18X50", "MG_23X55", "MG_6X38",
+                 "MG_8X40","MG_11X43", "MG_13X45")
+
+all_probes_grange <- GRanges(seqnames = Rle(zscore_gc_oe_ratios$ChromNum),
+                             ranges = IRanges(start = zscore_gc_oe_ratios$StartPos,
+                                              end = zscore_gc_oe_ratios$EndPos))
+
+
+hg38biomartTable <- read.table("/home/kevhu/data/20201030hg38KnownCanbiomartQuery.txt", header = TRUE,
+                               stringsAsFactors = FALSE, sep = "\t")
+
+mm10biomartTable <- read.table("/home/kevhu/data/20201030Mm10KnownCanbiomartQuery.txt", header = TRUE,
+                               stringsAsFactors = FALSE, sep = "\t")
+
+geneNameDf <- read.table("/home/kevhu/data/20201021geneNameBiomart.txt", header = TRUE,
+                         stringsAsFactors = FALSE, sep = "\t")
+
+
+human_hallmarks <- read.table("/mnt/DATA5/tmp/kev/tmpDbs/MSigDb/h.all.v7.4.symbols.gmt",
+                              sep = "\t", stringsAsFactors = FALSE, fill = TRUE)
+
+mouseBedFile <- read.table("/home/kevhu/data/bedFiles/IAD202670_167_Designed.gc.bed", stringsAsFactors = FALSE, sep = "\t",
+                           header = FALSE)
+
+
+```
+
+
+### Going to show processing of TCGA pan-cancer data first
+### Less variable and since it's the entire dataset i.e ploidy and cn only needs to 
+### done once
+```{r tcga_processing_cnas_arm/cna}
+### precursor files for separating out arm and cna
+human_cyto <- cyto_hg38mm10[grep("h_chr",cyto_hg38mm10$V1),]
+human_arm <- NULL
+for (i in unique(human_cyto$V1)) {
+  tmpDf <- human_cyto[which(human_cyto$V1 == i),]
+  centIdx <- which(tmpDf$V5 == "acen")
+  arm1 <- c("chromosome" = tmpDf$V1[1], "start" = tmpDf$V2[1],
+            "end" = tmpDf$V2[min(centIdx) - 1])
+  arm2 <- c("chromosome" = tmpDf$V1[1], "start" = tmpDf$V2[max(centIdx) + 1],
+            "end" = tmpDf$V2[nrow(tmpDf)])
+  human_arm <- rbind(human_arm, arm1, arm2)
+}
+
+human_arm <- data.frame(human_arm, stringsAsFactors = FALSE)
+human_arm$start <- as.numeric(human_arm$start)
+human_arm$end <- as.numeric(human_arm$end)
+human_arm$chromosome <- str_remove(human_arm$chromosome, "h_chr")
+human_arm$length <- human_arm$end  - human_arm$start
+human_arm$length80 <- human_arm$length * 0.8
+# write.table(human_arm, "/mnt/DATA5/tmp/kev/misc/20210713human_arm_syn.txt", sep = "\t",
+#             col.names = TRUE, row.names = FALSE, quote = FALSE)
+
+
+hg38ChromLocs <- NULL
+for (i in unique(human_cyto$V1)) {
+  tmpDf <- human_cyto[which(human_cyto$V1 == i),]
+  hg38ChromLocs <- rbind(hg38ChromLocs, c("chrom" = str_remove(tmpDf$V1[1], "h_chr"),
+                                             "start" = min(tmpDf$V2), "end" = max(tmpDf$V3)))
+}
+
+hg38ChromLocs <- data.frame(hg38ChromLocs, stringsAsFactors = FALSE)
+hg38ChromLocs$start <- as.numeric(hg38ChromLocs$start)
+hg38ChromLocs$end <- as.numeric(hg38ChromLocs$end)
+
+# write.table(hg38ChromLocs, "/mnt/DATA5/tmp/kev/misc/20210628chromList_hg38.txt",
+#             sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+
+# cl <- makeCluster(20)
+# registerDoParallel(cl)
+# finalTable <- NULL
+# finalTable <- foreach(i = unique(tcga_seg$Sample), .packages = "data.table", .combine = "rbind") %dopar% {
+#   res <- NULL
+#   sampleDf <- tcga_seg[which(tcga_seg$Sample == i),]
+#   for (j in unique(sampleDf$Chromosome)) {
+#     sampleDf_chr <- sampleDf[which(sampleDf$Chromosome == j),]
+#     indices <- c(1,1+which(abs(diff(sampleDf_chr$Modal_Total_CN)) >= 1))
+#     tmpDf <- data.frame("Sample" = rep(i,length(indices)), "Chromosome" = rep(j,length(indices)),
+#                         "Start" = sampleDf_chr$Start[indices],
+#                         "End" = sampleDf_chr$End[shift(indices,1, type = "lead")-1],
+#                         "Copynumber" = sampleDf_chr$Modal_Total_CN[indices])
+#     # because of how i use shift and lead, without doubling the last entry, I get NA
+#     tmpDf$End[nrow(tmpDf)] <- max(sampleDf_chr$End)
+#     res <- rbind(res, tmpDf)
+#   }
+#   res
+# }
+# stopCluster(cl)
+# finalTable$Sample <- as.character(finalTable$Sample)
+
+# write.table(finalTable, "/mnt/DATA5/tmp/kev/misc/20210628panCancerAllSegReduced_hg19.txt", quote = FALSE, col.names = TRUE, row.names = FALSE, sep = "\t")
+
+finalTable <- read.table("/mnt/DATA5/tmp/kev/misc/20210628panCancerAllSegReduced_hg19.txt", stringsAsFactors = FALSE, header = TRUE, sep = "\t")
+
+finalTable$length <- finalTable$End - finalTable$Start
+finalTable2 <- finalTable[which(finalTable$Chromosome %in% c(1:22)),]
+armRes <- separateSegments_tcga(finalTable2, tcga_ploidy)
+armTable <- armRes[[1]]
+cnaTable <- armRes[[2]]
+
+# write.table(armTable, "/mnt/DATA5/tmp/kev/misc/20210628panCancerArmTable_hg19.txt", sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
+# write.table(cnaTable, "/mnt/DATA5/tmp/kev/misc/20210628panCancerCnaTable_hg19.txt", sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
+```
+
+### Next step is processing arm and cna table into frequency tables to graph
+### the TSV files for genotype groups are obtained through cbioportal query
+### Query genes and it gives you samples with muts/cnas in those genes,
+### file loaded in is already processed, but relatively easy to process
+
+```{r tcga_arm/cna_tofreq}
+tcga_arm <- armTable
+tcga_cna <- cnaTable
+
+coad_arm <- tcga_arm[which(tcga_arm$Sample %in% coad$Sample.ID),]
+coad_cna <- tcga_cna[which(tcga_cna$Sample %in% coad$Sample.ID),]
+
+kap_arm <- tcga_arm[grep(paste(coad_KAP$samples, collapse = "|"), tcga_arm$Sample),]
+kap_cna <- tcga_cna[grep(paste(coad_KAP$samples, collapse = "|"), tcga_cna$Sample),]
+
+
+coad_arm2 <- data.frame("sampleID" = coad_arm$Sample, "chrom" = coad_arm$Chromosome,
+                        "start.pos" = coad_arm$Start, "end.pos" = coad_arm$End,
+                        "n.probes" = NA, "mean" = coad_arm$newTotalCN, stringsAsFactors = FALSE)
+
+coad_cna2 <- data.frame("sampleID" = coad_cna$Sample, "chrom" = coad_cna$Chromosome,
+                        "start.pos" = coad_cna$Start, "end.pos" = coad_cna$End,
+                        "n.probes" = NA, "mean" = coad_cna$newTotalCN, stringsAsFactors = FALSE)
+
+kap_arm2 <- data.frame("sampleID" = kap_arm$Sample, "chrom" = kap_arm$Chromosome,
+                        "start.pos" = kap_arm$Start, "end.pos" = kap_arm$End,
+                        "n.probes" = NA, "mean" = kap_arm$newTotalCN, stringsAsFactors = FALSE)
+kap_cna2 <- data.frame("sampleID" = kap_cna$Sample, "chrom" = kap_cna$Chromosome,
+                       "start.pos" = kap_cna$Start, "end.pos" = kap_cna$End,
+                       "n.probes" = NA, "mean" = kap_cna$newTotalCN, stringsAsFactors = FALSE)
+
+### should honestly condense the getFreqData, ampDels amd reducingBeds
+### into a one large function since I need to do this for muliple cancers
+### or splits in the data
+
+coad_arm_freq_out <- getFreqData(coad_arm2)
+ampDels_coad_arm <- ampsDels(coad_arm_freq_out)
+coad_arm_amp_bed <- reducingFreqBed(ampDels_coad_arm[[1]], ampDels_coad_arm[[2]])
+coad_arm_del_bed <- reducingFreqBed(ampDels_coad_arm[[3]], ampDels_coad_arm[[4]])
+
+coad_cna_freq_out <- getFreqData(coad_cna2)
+ampDels_coad_cna <- ampsDels(coad_cna_freq_out)
+coad_cna_amp_bed <- reducingFreqBed(ampDels_coad_cna[[1]], ampDels_coad_cna[[2]])
+coad_cna_del_bed <- reducingFreqBed(ampDels_coad_cna[[3]], ampDels_coad_cna[[4]])
+
+
+kap_arm_freq_out <- getFreqData(kap_arm2)
+ampDels_kap_arm <- ampsDels(kap_arm_freq_out)
+kap_arm_amp_bed <- reducingFreqBed(ampDels_kap_arm[[1]], ampDels_kap_arm[[2]])
+kap_arm_del_bed <- reducingFreqBed(ampDels_kap_arm[[3]], ampDels_kap_arm[[4]])
+
+kap_cna_freq_out <- getFreqData(kap_cna2)
+ampDels_kap_cna <- ampsDels(kap_cna_freq_out)
+kap_cna_amp_bed <- reducingFreqBed(ampDels_kap_cna[[1]], ampDels_kap_cna[[2]])
+kap_cna_del_bed <- reducingFreqBed(ampDels_kap_cna[[3]], ampDels_kap_cna[[4]])
+
+# write.table(coad_arm_amp_bed, "/mnt/DATA5/tmp/kev/misc/20210629_coadArmAmp.bed",
+#             sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+# 
+# write.table(coad_arm_del_bed, "/mnt/DATA5/tmp/kev/misc/20210629_coadArmDel.bed",
+#             sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+# 
+# write.table(coad_cna_amp_bed, "/mnt/DATA5/tmp/kev/misc/20210629_coadCnaAmp.bed",
+#             sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+# 
+# write.table(coad_cna_del_bed, "/mnt/DATA5/tmp/kev/misc/20210629_coadCnaDel.bed",
+#             sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+
+# write.table(kap_arm_amp_bed, "/mnt/DATA5/tmp/kev/misc/20210629_kapArmAmp.bed",
+#             sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+# 
+# write.table(kap_arm_del_bed, "/mnt/DATA5/tmp/kev/misc/20210629_kapArmDel.bed",
+#             sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+# 
+# write.table(kap_cna_amp_bed, "/mnt/DATA5/tmp/kev/misc/20210629_kapCnaAmp.bed",
+#             sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+# 
+# write.table(kap_cna_del_bed, "/mnt/DATA5/tmp/kev/misc/20210629_kapCnaDel.bed",
+#             sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+
+```
+
+### Next will show processing of the mouse data i.e getting arm/cnas
+### Plus creating synteny plots
+### if correcting for tumor content, get probe file and the do correction before segmentation
+### arm/whole chrom is a little different since all arm changes are whole chrom changes
+### done using bed file
+
+```{r mouse_seg_processing}
+
+mouseBedChromLim <- NULL
+for (i in unique(mouseBedFile$V1)) {
+  if (i == "chrX") {
+    next()
+  }
+  tmpBed <- mouseBedFile[which(mouseBedFile$V1 == i),]
+  tmpStart <- min(tmpBed$V2)
+  tmpEnd <- max(tmpBed$V3)
+  mouseBedChromLim <- rbind(mouseBedChromLim, c("chr" = i,
+                            "start" = tmpStart,
+                            "end" = tmpEnd))
+}
+
+mouseBedChromLim  <- data.frame(mouseBedChromLim, stringsAsFactors = FALSE)
+mouseBedChromLim$start <- as.numeric(mouseBedChromLim$start)
+mouseBedChromLim$end <- as.numeric(mouseBedChromLim$end)
+mouseBedChromLim$chr <- str_remove(mouseBedChromLim$chr,"chr")
+mouseBedChromLim$length <- mouseBedChromLim$end - mouseBedChromLim$start
+mouseBedChromLim$length80 <- 0.8 * mouseBedChromLim$length
+
+# write.table(mouseBedChromLim, "/mnt/DATA5/tmp/kev/misc/20210713mouse_arm_syn.txt",
+#             sep = "\t", row.names = FALSE, col.names = TRUE, quote = FALSE)
+
+
+wt <- c("EF_D03_MG_X14", "EF_D12_MG_X15", "EF_D13_MG_X16", "EF_D20_MG_X55")
+segResults <- segResults[-which(segResults$ID %in% wt),]
+segZscores <- calcZscore(segResults)
+segZfilt <- segZscoresFilt_zeroOut(segResults, segZscores)
+
+tmpSeg <- cbind(segZfilt[,1:4], NA, segZfilt[,5])
+colnames(tmpSeg) <- c("sampleID","chrom", "start.pos","end.pos", "n.probes", "mean")
+tmpSeg <- tmpSeg[grep("EF_D", tmpSeg$sampleID),]
+
+armRes <- separateSegments_m(tmpSeg, mouseBedChromLim)
+m_arm <- armRes[[1]]
+m_cna <- armRes[[2]]
+
+m_arm_freq_out <- getFreqData(m_arm)
+m_arm_coad <- ampsDels(m_arm_freq_out)
+
+m_arm_amp_bed <- reducingFreqBed(m_arm_coad[[1]], m_arm_coad[[2]])
+m_arm_del_bed <- reducingFreqBed(m_arm_coad[[3]], m_arm_coad[[4]])
+
+# write.table(m_arm_amp_bed, "/mnt/DATA5/tmp/kev/misc/20210712_1copy_fearon_arm_amp.bed",
+#             sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+# 
+# write.table(m_arm_del_bed, "/mnt/DATA5/tmp/kev/misc/20210712_1copy_fearon_arm_del.bed",
+#             sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+
+
+m_cna_freq_out <- getFreqData(m_cna)
+m_cna_coad <- ampsDels(m_cna_freq_out)
+
+m_cna_amp_bed <- reducingFreqBed(m_cna_coad[[1]], m_cna_coad[[2]])
+m_cna_del_bed <- reducingFreqBed(m_cna_coad[[3]], m_cna_coad[[4]])
+
+# write.table(m_cna_amp_bed, "/mnt/DATA5/tmp/kev/misc/20210712_1copy_fearon_cna_amp.bed",
+#             sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+# 
+# write.table(m_cna_del_bed, "/mnt/DATA5/tmp/kev/misc/20210712_1copy_fearon_cna_del.bed",
+#             sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+
+
+
+# Note: old way of doing single sample to freqs graph is depreciated. Look at:
+# /home/kevhu/scripts/20210617syntenyFearonData.R - should be a for loop for processed segResults
+
+
+arm_amp_bed <- read.table("/mnt/DATA5/tmp/kev/misc/20210621_fearon_arm_amp.bed", sep = "\t",
+                          stringsAsFactors = FALSE, header = TRUE)
+arm_del_bed <- read.table("/mnt/DATA5/tmp/kev/misc/20210621_fearon_arm_del.bed", sep = "\t",
+                          stringsAsFactors = FALSE, header = TRUE)
+tcga_coad_arm_amp_bed <- read.table("/mnt/DATA5/tmp/kev/misc/20210629_coadArmAmp.bed", sep ="\t", stringsAsFactors = FALSE, header = TRUE)
+tcga_coad_arm_del_bed <- read.table("/mnt/DATA5/tmp/kev/misc/20210629_coadArmDel.bed", sep = "\t", stringsAsFactors = FALSE, header = TRUE)
+
+coad_arm_allSynTable <- circosFreq(arm_amp_bed, arm_del_bed,tcga_coad_arm_amp_bed, tcga_coad_arm_del_bed, filename = "20210701fearonCoad_arm")
+
+
+cna_amp_bed <- read.table("/mnt/DATA5/tmp/kev/misc/20210621_fearon_cna_amp.bed", sep = "\t",
+                          stringsAsFactors = FALSE, header = TRUE)
+cna_del_bed <- read.table("/mnt/DATA5/tmp/kev/misc/20210621_fearon_cna_del.bed", sep = "\t",
+                          stringsAsFactors = FALSE, header = TRUE)
+
+tcga_coad_cna_amp_bed <- read.table("/mnt/DATA5/tmp/kev/misc/20210629_coadCnaAmp.bed", sep = "\t",
+                                    stringsAsFactors = FALSE, header = TRUE)
+tcga_coad_cna_del_bed <- read.table("/mnt/DATA5/tmp/kev/misc/20210629_coadCnaDel.bed", sep = "\t",
+                                    stringsAsFactors = FALSE, header = TRUE)
+
+coad_cna_allSynTable <- circosFreq(cna_amp_bed, cna_del_bed, tcga_coad_cna_amp_bed, tcga_coad_cna_del_bed,
+           filename = "20210701fearonCoad_cna")
+
+# above was for all coad, using kap genotype subset
+
+kap_coad_cna_amp_bed <- read.table("/mnt/DATA5/tmp/kev/misc/20210629_kapCnaAmp.bed", sep = "\t",
+                                    stringsAsFactors = FALSE, header = TRUE)
+kap_coad_cna_del_bed <- read.table("/mnt/DATA5/tmp/kev/misc/20210629_kapCnaDel.bed", sep = "\t",
+                                    stringsAsFactors = FALSE, header = TRUE)
+kap_coad_arm_amp_bed <- read.table("/mnt/DATA5/tmp/kev/misc/20210629_kapArmAmp.bed", sep = "\t",
+                                    stringsAsFactors = FALSE, header = TRUE)
+kap_coad_arm_del_bed <- read.table("/mnt/DATA5/tmp/kev/misc/20210629_kapCnaDel.bed", sep = "\t",
+                                    stringsAsFactors = FALSE, header = TRUE)
+
+kap_arm_allSynTable <- circosFreq(arm_amp_bed, arm_del_bed, kap_coad_arm_amp_bed, kap_coad_arm_del_bed, filename = "20210701fearonKap_arm")
+
+kap_cna_allSynTable <- circosFreq(cna_amp_bed, cna_del_bed, kap_coad_cna_amp_bed, kap_coad_cna_del_bed,
+           filename = "20210701fearonKap_cna")
+
+```
+
+### Next will be the pathway analysis
+### Need to do synteny analysis above prior for the syntenic bed file
+### After create GRagnes of known exons to get get gene locations, then intersect
+### From the final gene list, can do multiple metrics
+
+```{r}
+
+### getting coordinates for all genes human and mouse
+h_exon_boundaries <- NULL
+for (i in unique(hg38biomartTable$external_gene_name)) {
+  tmpTable  <- hg38biomartTable[which(hg38biomartTable$external_gene_name == i),]
+  tmpChr <- unique(tmpTable$chromosome_name)
+  tmpStart <- min(tmpTable$exon_chrom_start)
+  tmpEnd <- max(tmpTable$exon_chrom_end)
+  tmpVector <- c("gene" = i, "chrom" = tmpChr, "start" = tmpStart, "end" = tmpEnd)
+  h_exon_boundaries <- rbind(h_exon_boundaries, tmpVector)
+}
+
+h_exon_boundaries <- data.frame(h_exon_boundaries, stringsAsFactors = FALSE)
+# write.table(h_exon_boundaries,"/mnt/DATA5/tmp/kev/misc/20210617hg38ExonBoundaries.txt", sep = "\t",
+#             quote = FALSE, row.names = FALSE, col.names = TRUE)
+
+m_exon_boundaries <- NULL
+for (i in unique(mm10biomartTable$external_gene_name)) {
+  tmpTable  <- mm10biomartTable[which(mm10biomartTable$external_gene_name == i),]
+  tmpChr <- unique(tmpTable$chromosome_name)
+  tmpStart <- min(tmpTable$exon_chrom_start)
+  tmpEnd <- max(tmpTable$exon_chrom_end)
+  tmpVector <- c("gene" = i, "chrom" = tmpChr, "start" = tmpStart, "end" = tmpEnd)
+  m_exon_boundaries <- rbind(m_exon_boundaries, tmpVector)
+}
+
+m_exon_boundaries <- data.frame(m_exon_boundaries, stringsAsFactors = FALSE)
+
+# write.table(m_exon_boundaries,"/mnt/DATA5/tmp/kev/misc/20210617mm10ExonBoundaries.txt", sep = "\t",
+#             quote = FALSE, row.names = FALSE, col.names = TRUE)
+
+
+hGrange <- GRanges(seqnames = h_exon_boundaries$chrom,
+                   IRanges(start = as.numeric(h_exon_boundaries$start),
+                           end = as.numeric(h_exon_boundaries$end)))
+mGrange <- GRanges(seqnames = m_exon_boundaries$chrom,
+                   IRanges(start = as.numeric(m_exon_boundaries$start),
+                           end = as.numeric(m_exon_boundaries$end)))
+
+
+human_hallmarks_list <- NULL
+for (i in 1:nrow(human_hallmarks)) {
+  tmpList <- list(human_hallmarks[i, 3:ncol(human_hallmarks)])
+  names(tmpList) <- human_hallmarks[i, 1]
+  human_hallmarks_list[[i]] <- tmpList
+}
+
+# easiest way is to get list of all genes and their respective value
+# and do enrichment from that. from that graphing it will only need 
+# to show each pathway once
+
+
+geneListCoadArm <- getGeneList(coad_arm_allSynTable)
+pathwayResCoadArm <- enrichmentStats(geneListCoadArm, human_hallmarks_list)
+
+geneListCoadCna <- getGeneList(coad_cna_allSynTable)
+pathwayResCoadCna <- enrichmentStats(geneListCoadCna, human_hallmarks_list)
+
+geneListKapArm <- getGeneList(kap_arm_allSynTable)
+pathwayResKapArm <- enrichmentStats(geneListKapArm, human_hallmarks_list)
+geneListKapCna <- getGeneList(kap_cna_allSynTable)
+pathwayResKapCna <- enrichmentStats(geneListKapCna, human_hallmarks_list)
+
+
+```
+
+### separate KAP samples from COAD
+
+### simple metrics to calculate would be the FGA or DGI from one of Ben-David's paper
+
+### also thing to note is the human data for coad are ABSOLUTE calls - 
+### so all changes are at least 1 copy changes, maybe I need to filter
+### by a similar cutoff for mouse data
+
+```{r}
+pathwayResCoadArm_filt <- pathwayResCoadArm[which(abs(pathwayResCoadArm$cor) > .1),]
+pathwayResCoadArm_filt$pathway <- factor(pathwayResCoadArm_filt $pathway, levels = unique(pathwayResCoadArm_filt$pathway))
+pathwayResCoadArm_filt$fill <- ifelse(pathwayResCoadArm_filt$cor > 0, "firebrick1", "lightblue")
+pathwayResCoadArm_filt$fill <- ifelse(pathwayResCoadArm_filt$fisher < 0.05/50, pathwayResCoadArm_filt$fill, "white")
+a <- ggplot(pathwayResCoadArm_filt, aes(x = pathway, y = cor)) + geom_bar(stat = "identity", color = pathwayResCoadArm_filt$fill) + 
+  ylim(c(-1, 1)) + theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 4), plot.title = element_text(hjust = 0.5)) +
+  ggtitle("Coad Arm") + xlab("") + ylab("Pearson corr")
+
+pathwayResCoadCna_filt <- pathwayResCoadCna[which(abs(pathwayResCoadCna$cor) > .1),]
+pathwayResCoadCna_filt$pathway <- factor(pathwayResCoadCna_filt $pathway, levels = unique(pathwayResCoadCna_filt$pathway))
+pathwayResCoadCna_filt$fill <- ifelse(pathwayResCoadCna_filt$cor > 0, "firebrick1", "lightblue")
+pathwayResCoadCna_filt$fill <- ifelse(pathwayResCoadCna_filt$fisher < 0.05/50, pathwayResCoadCna_filt$fill, "white")
+b <- ggplot(pathwayResCoadCna_filt, aes(x = pathway, y = cor)) + geom_bar(stat = "identity", color = pathwayResCoadCna_filt$fill) + 
+  ylim(c(-1, 1)) + theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 4), plot.title = element_text(hjust = 0.5)) +
+  ggtitle("Coad CNA") + xlab("") + ylab("")
+
+pathwayResKapArm_filt <- pathwayResKapArm[which(abs(pathwayResKapArm$cor) > .1),]
+pathwayResKapArm_filt$pathway <- factor(pathwayResKapArm_filt $pathway, levels = unique(pathwayResKapArm_filt$pathway))
+pathwayResKapArm_filt$fill <- ifelse(pathwayResKapArm_filt$cor > 0, "firebrick1", "lightblue")
+pathwayResKapArm_filt$fill <- ifelse(pathwayResKapArm_filt$fisher < 0.05/50, pathwayResKapArm_filt$fill, "white")
+c <- ggplot(pathwayResKapArm_filt, aes(x = pathway, y = cor)) + geom_bar(stat = "identity", color = pathwayResKapArm_filt$fill) + 
+  ylim(c(-1, 1)) + theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 4), plot.title = element_text(hjust = 0.5)) +
+  ggtitle("Kap Arm") + xlab("Hallmark pathways") + ylab("Pearson corr")
+
+pathwayResKapCna_filt <- pathwayResKapCna[which(abs(pathwayResKapCna$cor) > .1),]
+pathwayResKapCna_filt$pathway <- factor(pathwayResKapCna_filt $pathway, levels = unique(pathwayResKapCna_filt$pathway))
+pathwayResKapCna_filt$fill <- ifelse(pathwayResKapCna_filt$cor > 0, "firebrick1", "lightblue")
+pathwayResKapCna_filt$fill <- ifelse(pathwayResKapCna_filt$fisher < 0.05/50, pathwayResKapCna_filt$fill, "white")
+d <- ggplot(pathwayResKapCna_filt, aes(x = pathway, y = cor)) + geom_bar(stat = "identity", color = pathwayResKapCna_filt$fill) + 
+  ylim(c(-1, 1)) + theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 4), plot.title = element_text(hjust = 0.5)) +
+  ggtitle("Kap CNA") + xlab("Hallmark pathways") + ylab("")
+
+dev.off()
+pdf("/mnt/DATA5/tmp/kev/misc/20210704syntenypathway.pdf", useDingbats = FALSE)
+grid.arrange(a,b,c,d, ncol = 2)
+dev.off()
+```
+
+
+
+
+

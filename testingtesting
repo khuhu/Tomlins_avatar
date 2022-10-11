@@ -1,0 +1,45 @@
+#!/usr/bin/env Rscript
+
+sampleVarCalls = read.table("/home/kevhu/data/temp.txt",
+                            header = TRUE,sep = '\t', quote = "", stringsAsFactors = FALSE)
+
+non.hash.start = Sys.time()
+test = apply(X = sampleVarCalls[,c("SAMPLE","BARCODE","BED","REPORTNUM","RunName")], MARGIN = 1, FUN = paste, collapse = "")
+for(i in seq_along(sampleVarCalls$SAMPLE)){
+  ##finding positional percentage
+  posPct = sampleVarCalls[which((sampleVarCalls$Chr == sampleVarCalls$Chr[i]) & (sampleVarCalls$Start_position == sampleVarCalls$Start_position[i]) & (sampleVarCalls$End_position == sampleVarCalls$End_position[i]) & (sampleVarCalls$REF_1 == sampleVarCalls$REF_1[i])),]
+  sampleVarCalls$new_TOT_OBS[i] = nrow(posPct)
+  sampleVarCalls$new_TOT_NS[i] = length(unique(test))
+  sampleVarCalls$new_TOT_POS_PCT[i] =  nrow(posPct)/length(unique(test))
+  ##finding position variance
+  varPCT = sampleVarCalls[which((sampleVarCalls$Chr == sampleVarCalls$Chr[i]) & (sampleVarCalls$Start_position == sampleVarCalls$Start_position[i]) & (sampleVarCalls$End_position == sampleVarCalls$End_position[i]) & (sampleVarCalls$REF_1 == sampleVarCalls$REF_1[i]) & (sampleVarCalls$ALT_1 == sampleVarCalls$ALT_1[i])),]
+  sampleVarCalls$new_TOT_VAR_PCT[i] = nrow(varPCT)/length(unique(test))
+}
+non.hash.end = Sys.time()
+nonHashTime  = non.hash.end - non.hash.start
+
+library(hashmap)
+Values <- replicate(10e6, {
+  paste0(sample(letters, 10, TRUE),
+         collapse = "")
+})
+Keys <- do.call(paste0,sampleVarCalls[c("Chr","Start_position","End_position","REF_1")])
+Keys2 <- do.call(paste0,sampleVarCalls[c("Chr","Start_position","End_position","REF_1","ALT_1")])
+testHash <- hashmap(Keys, Values)
+test <- apply(X = sampleVarCalls[,c("SAMPLE","BARCODE","BED","REPORTNUM","RunName")], MARGIN = 1, FUN = paste, collapse = "")
+testHash.varPct = hashmap(Keys2,Values)
+tot.ns = length(unique(test))
+
+start.time <- Sys.time()
+for(i in seq_along(sampleVarCalls$SAMPLE)){
+  posPct <- testHash$find(Keys[i])
+  sampleVarCalls$new_TOT_POS_PCT[i] <- length(posPct)/tot.ns
+  varPct <- testHash.varPct$find(Keys2[i])
+  sampleVarCalls$new_TOT_VAR_PCT[i] <- length(varPct)/tot.ns
+}
+end.time <- Sys.time()
+hashTime = end.time - start.time
+
+timeTable = c(nonHashTime,hashTime)
+
+write.table(x = timeTable ,file = "/home/kevhu/data/20170712_benchmarkTempFile.tsv", sep = '\t', row.names = FALSE)

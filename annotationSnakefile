@@ -1,0 +1,31 @@
+### another script copies vcf and indexes into proper directories + proper index
+### this script should be used to create a separate annotation file for each vcf
+
+
+import pandas as pd
+data = pd.read_csv("/home/kevhu/scripts/newMousePanelPipeline/mouseVcfTable.txt", sep='\t')
+filename = data['filename']
+
+
+
+rule all:
+    input:
+        expand("{id}.mm10_multianno.txt", id = filename)
+
+rule convert:
+    input:
+        "{id}.vcf.gz"
+    output:
+        "{id}.avinput"
+    shell:
+        "/home/kevhu/programs/annovar/convert2annovar.pl --format vcf4old --includeinfo {input} > {output}"
+
+rule annotate:
+    input:
+        "{id}.avinput"
+    output:
+        "{id}.mm10_multianno.txt"
+    params:
+        prefix="{id}"
+    shell:
+        "perl /home/kevhu/programs/annovar/table_annovar.pl {input} /home/kevhu/programs/annovar/mousedb/ --buildver mm10 --outfile {params.prefix} --tempdir /home/kevhu/programs/annovar/ -operation g,f -protocol refGene,IAD124056_167_Designed_mm10_mpgpv6_Indels --otherinfo --remove"

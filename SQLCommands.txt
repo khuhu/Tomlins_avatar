@@ -1,0 +1,59 @@
+###Used to initially try and query the neeeded dataset
+
+###To log in 
+mysql -u username -p
+
+###when in mysql
+
+use annoDB
+
+SELECT SAMPLE, BARCODE, BED, REPORTNUM, RunName, Chr, Start_position, End_position, REF_1, ALT_1, TOT_OBS, TOT_NS, TOT_POS_PCT, TOT_VAR_PCT, BED_TOT_OBS, BED_TOT_NS, BED_TOT_POS_PCT, BED_TOT_VAR_PCT
+FROM `var_anno_tbl2`
+WHERE BED = 'OCP_20150630_designed'
+INTO OUTFILE "/mnt/DATA3/Kevin/ocp_20150630.tsv"
+FIELDS TERMINATED BY '\t' OPTIONALLY ENCLOSED BY '"'
+LINES TERMINATED BY '\n' ;
+
+
+
+
+
+
+
+
+###Next I will try and convert my R code in SQL
+#### R
+length(seq_along(sampleVarCalls$SAMPLE))
+
+test = apply(X = sampleVarCalls[,c("SAMPLE","BARCODE","BED","REPORTNUM","RunName")], MARGIN = 1, FUN = paste, collapse = "")
+for(i in seq_along(sampleVarCalls$SAMPLE)){
+  ##finding positional percentage
+  posPct = sampleVarCalls[which((sampleVarCalls$Chr == sampleVarCalls$Chr[i]) & (sampleVarCalls$Start_position == sampleVarCalls$Start_position[i]) & (sampleVarCalls$End_position == sampleVarCalls$End_position[i]) & (sampleVarCalls$REF_1 == sampleVarCalls$REF_1[i])),]
+  sampleVarCalls$new_TOT_POS_PCT[i] =  nrow(posPct)/length(unique(test))
+  ##finding position variance
+  varPCT = sampleVarCalls[which((sampleVarCalls$Chr == sampleVarCalls$Chr[i]) & (sampleVarCalls$Start_position == sampleVarCalls$Start_position[i]) & (sampleVarCalls$End_position == sampleVarCalls$End_position[i]) & (sampleVarCalls$REF_1 == sampleVarCalls$REF_1[i]) & (sampleVarCalls$ALT_1 == sampleVarCalls$ALT_1[i])),]
+  sampleVarCalls$new_TOT_VAR_PCT[i] = nrow(varPCT)/length(unique(test))
+}
+
+#### SQL (not procedure)
+DECLARE i INT;
+DECLARE identity;
+SET i=1;
+SET identity = SELECT
+ recalc_loop: LOOP
+	DECLARE chr ;
+
+
+
+
+
+
+
+
+
+mysql -u scott -p -e "USE AnnoDB; SELECT SAMPLE, BARCODE, BED, REPORTNUM, RunName, Chr, Start_position, End_position, REF_1, ALT_1, TOT_OBS, TOT_NS, TOT_POS_PCT, TOT_VAR_PCT, BED_TOT_OBS, BED_TOT_NS, BED_TOT_POS_PCT ,BED_TOT_VAR_PCT FROM 'var_anno_tbl2' WHERE BED = 'OCP_20150630_designed';" > ./temp.txt
+
+
+
+
+mysql -u kevin -p -e "USE AnnoDB; SELECT SAMPLE, BARCODE, BED, REPORTNUM, REPORT,RunName, Chr, Start_position, End_position, REF_1, ALT_1, TOT_OBS, TOT_NS, TOT_POS_PCT, TOT_VAR_PCT, BED_TOT_OBS, BED_TOT_NS, BED_TOT_POS_PCT ,BED_TOT_VAR_PCT FROM 'var_anno_tbl2';" > ./20170810mySQLdata.txt

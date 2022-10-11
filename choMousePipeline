@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+FILES=/mnt/DATA4/kevhu/choLab/vcfs/nonHotspot.merged.vcf
+cd ~/programs/annovar
+
+for file in $FILES; do
+	perl convert2annovar.pl -format vcf4old $file > ~/tmp/mouseVars.avinput
+	perl annotate_variation.pl --filter --dbtype vcf --vcfdbfile IAD124056_167_Designed_mm10_SNPs.vcf --buildver mm10 --otherinfo --outfile filterSNP  ~/tmp/mouseVars.avinput mousedb/	
+	perl annotate_variation.pl --filter --dbtype vcf --vcfdbfile IAD124056_167_Designed_mm10_Indels.vcf --buildver mm10 --otherinfo --outfile filterIndel filterSNP.mm10_vcf_filtered mousedb/
+	perl annotate_variation.pl --outfile $(basename "$file")_filtered --buildver mm10 filterIndel.mm10_vcf_filtered mousedb/
+done

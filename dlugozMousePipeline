@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+
+FILES=/mnt/DATA4/kevhu/dlugozLab/vcfs/cpVcfs/mergeFile.txt
+
+cd ~/programs/annovar/
+
+
+cat $FILES | while read line;
+do
+	fbname=$(basename $line .filtered.vcf.gz)
+	perl convert2annovar.pl -format vcf4 $line > ~/tmp/mouseVars.avinput
+	perl table_annovar.pl ~/tmp/mouseVars.avinput mousedb/ --buildver mm10 --outfile /mnt/DATA4/kevhu/annovarOut/$fbname --tempdir /mnt/DATA4/kevhu/annovarOut/ -operation g,f,f -protocol refGene,IAD124056_167_Designed_mm10_Indels,IAD124056_167_Designed_mm10_SNPs
+done

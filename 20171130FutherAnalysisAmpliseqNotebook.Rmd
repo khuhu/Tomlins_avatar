@@ -1,0 +1,219 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+###needed to look at correlation between techinical replicates and genes
+tableOfDat <- read.table(file = "/mnt/DATA4/kevhu/LorenaData/20171130UT_Cov_Combined.Uniq.txt", sep = "\t", header = TRUE)
+
+tableOfDat$Gene <- gsub("\\;.*","", tableOfDat$attributes)
+tableOfDat$Gene <- gsub("GENE_ID=","", tableOfDat$Gene)
+
+
+which(grepl("total_cov",colnames(tableOfDat)))
+
+edgeRmat <- tableOfDat[,grepl("total_cov",colnames(tableOfDat))]
+rownames(edgeRmat) <- tableOfDat$Gene
+set1 <- edgeRmat[,grep("L2", colnames(edgeRmat))]
+set2 <- edgeRmat[,-grep("L2", colnames(edgeRmat))]
+
+listOfCors.p <- NULL
+listOfCors.s <- NULL
+listOfCors.k <- NULL
+
+set1 <- edgeRmat[,grep("L2", colnames(edgeRmat))]
+set2 <- edgeRmat[,-grep("L2", colnames(edgeRmat))]
+for(i in 1:nrow(edgeRmat)){
+  a <- cor(c(unlist(set1[i,])), c(unlist(set2[i,])), method = c("pearson"))
+  b <- cor(c(unlist(set1[i,])), c(unlist(set2[i,])), method = c("spearman"))
+  c <- cor(c(unlist(set1[i,])), c(unlist(set2[i,])), method = c("kendall"))
+  listOfCors.p <- c(listOfCors.p, a)
+  listOfCors.s <- c(listOfCors.s, b)
+  listOfCors.k <- c(listOfCors.k, c)
+}
+
+listOfCors.p <- listOfCors.p[-which(is.na(listOfCors.p))]
+listOfCors.s <- listOfCors.s[-which(is.na(listOfCors.s))]
+listOfCors.k <- listOfCors.k[-which(is.na(listOfCors.k))]
+
+par(mfrow=c(2,2))
+hist(listOfCors.p, main = "pearson")
+hist(listOfCors.s, main = "spearmam")
+hist(listOfCors.k, main = "kendall")
+
+summary(listOfCors.p)
+
+
+cor(c(unlist(set1[which(rownames(set1) == "CXCL14"),])), c(unlist(set2[which(rownames(set2) == "CXCL14"),])), method = c("pearson"))
+cor(c(unlist(set1[which(rownames(set1) == "CXCL14"),])), c(unlist(set2[which(rownames(set2) == "CXCL14"),])), method = c("spearman"))
+cor(c(unlist(set1[which(rownames(set1) == "CXCL14"),])), c(unlist(set2[which(rownames(set2) == "CXCL14"),])), method = c("kendall"))
+
+
+cor(c(unlist(set1[which(rownames(set1) == "AXIN2"),])), c(unlist(set2[which(rownames(set2) == "AXIN2"),])), method = c("pearson"))
+cor(c(unlist(set1[which(rownames(set1) == "AXIN2"),])), c(unlist(set2[which(rownames(set2) == "AXIN2"),])), method = c("spearman"))
+cor(c(unlist(set1[which(rownames(set1) == "AXIN2"),])), c(unlist(set2[which(rownames(set2) == "AXIN2"),])), method = c("kendall"))
+
+cor(c(unlist(set1[which(rownames(set1) == "CYP4B1"),])), c(unlist(set2[which(rownames(set2) == "CYP4B1"),])), method = c("pearson"))
+cor(c(unlist(set1[which(rownames(set1) == "CYP4B1"),])), c(unlist(set2[which(rownames(set2) == "CYP4B1"),])), method = c("spearman"))
+cor(c(unlist(set1[which(rownames(set1) == "CYP4B1"),])), c(unlist(set2[which(rownames(set2) == "CYP4B1"),])), method = c("kendall"))
+
+cor(c(unlist(set1[which(rownames(set1) == "RAD51"),])), c(unlist(set2[which(rownames(set2) == "RAD51"),])), method = c("pearson"))
+cor(c(unlist(set1[which(rownames(set1) == "RAD51"),])), c(unlist(set2[which(rownames(set2) == "RAD51"),])), method = c("spearman"))
+cor(c(unlist(set1[which(rownames(set1) == "RAD51"),])), c(unlist(set2[which(rownames(set2) == "RAD51"),])), method = c("kendall"))
+
+cor(c(unlist(set1[which(rownames(set1) == "BSX"),])), c(unlist(set2[which(rownames(set2) == "BSX"),])), method = c("pearson"))
+cor(c(unlist(set1[which(rownames(set1) == "BSX"),])), c(unlist(set2[which(rownames(set2) == "BSX"),])), method = c("spearman"))
+cor(c(unlist(set1[which(rownames(set1) == "BSX"),])), c(unlist(set2[which(rownames(set2) == "BSX"),])), method = c("kendall"))
+
+
+```
+
+
+```{r}
+###testing to see best correlation coefficient to use for finding genes to filter
+###start by fitting Lorena's data 
+library(MASS)
+plot(density(c(unlist(edgeRmat[(cpm(edgeRmat) < 5)]))))
+plot(density(c(unlist(edgeRmat[(cpm(edgeRmat) > 5)]))))
+
+params <- fitdistr(c(unlist(edgeRmat[(cpm(edgeRmat) < 5)])), "poisson")
+params
+
+```
+```{r}
+###experiment here tests how well correletaions measure 
+
+
+listOfCors <- NULL
+for(i in 1:10000){
+  test1 <- rpois(10,lambda = params$estimate)
+  test2 <- c(200,rpois(9,lambda = params$estimate))
+  a <- cor(test1,test2, method = "pearson")
+  listOfCors <- c(listOfCors, a)
+}
+
+hist(listOfCors, title = "")
+boxplot(listOfCors)
+summary(listOfCors)
+quantile(listOfCors, c(0.975, .997))
+
+listOfCors <- NULL
+for(i in 1:10000){
+  test1 <- rpois(10,lambda = params$estimate)
+  test2 <- c(200,rpois(9,lambda = params$estimate))
+  a <- cor(test1,test2, method = "spearman")
+  listOfCors <- c(listOfCors, a)
+}
+
+hist(listOfCors, title = "")
+boxplot(listOfCors)
+summary(listOfCors)
+quantile(listOfCors, c(0.975, .997))
+
+listOfCors <- NULL
+for(i in 1:10000){
+  test1 <- rpois(10,lambda = params$estimate)
+  test2 <- c(200,rpois(9,lambda = params$estimate))
+  a <- cor(test1,test2, method = "kendall")
+  listOfCors <- c(listOfCors, a)
+}
+
+hist(listOfCors, title = "")
+boxplot(listOfCors)
+summary(listOfCors)
+quantile(listOfCors, c(0.975, .997))
+
+###from this quantile
+
+```
+```{r}
+listOfCors <- NULL
+for(i in 1:nrow(edgeRmat)){
+  set1 <- edgeRmat[,grep("L2", colnames(edgeRmat))]
+  set2 <- edgeRmat[,-grep("L2", colnames(edgeRmat))]
+  a <- cor(c(unlist(set1[i,])), c(unlist(set2[i,])))
+  listOfCors <- c(listOfCors, a)
+}
+
+listOfCors[is.na(listOfCors)] <- 1
+summary(listOfCors)
+hist(listOfCors, main = "pearson")
+
+
+#shows that the genes taken out or calculated as NA have 0 expression anyways
+summary(rowSums(edgeRmat[which(is.na(listOfCors)),])) 
+
+#using the 1 SD away  - one sided for simulated non-expressed genes using poisson 
+#you get ~60%+ of the total genes you sample
+
+
+
+
+listOfCors <- NULL
+for(i in 1:nrow(edgeRmat)){
+  set1 <- edgeRmat[,grep("L2", colnames(edgeRmat))]
+  set2 <- edgeRmat[,-grep("L2", colnames(edgeRmat))]
+  a <- cor(c(unlist(set1[i,])), c(unlist(set2[i,])), method = c("spearman"))
+  listOfCors <- c(listOfCors, a)
+}
+
+
+listOfCors[is.na(listOfCors)] <- 1
+summary(listOfCors)
+hist(listOfCors, main = "spearman")
+
+
+
+
+listOfCors <- NULL
+for(i in 1:nrow(edgeRmat)){
+  set1 <- edgeRmat[,grep("L2", colnames(edgeRmat))]
+  set2 <- edgeRmat[,-grep("L2", colnames(edgeRmat))]
+  a <- cor(c(unlist(set1[i,])), c(unlist(set2[i,])), method = c("kendall"))
+  listOfCors <- c(listOfCors, a)
+}
+
+
+listOfCors[is.na(listOfCors)] <- 1
+summary(listOfCors)
+hist(listOfCors, main = "kendall")
+quantile(listOfCors, 0.4)
+
+
+```
+
+
+```{r}
+###now to do something different, in the sense of looking at distribution of concordance and discordance around our defitinition of expression i.e CPM > 5
+
+dummyMat <- NULL
+edgeRmat.cpm <- cpm(edgeRmat)
+for(i in 1:nrow(edgeRmat)){
+  dummyRow <- NULL
+  for(j in 1:(ncol(edgeRmat)/2)){
+    if((sum(edgeRmat.cpm[i,c(2*j-1,2*j)] > 5) == 2 | sum(edgeRmat.cpm[i,c(2*j-1,2*j)] > 5) == 0) == TRUE){
+      k <- 1
+    }
+    else{
+      k <- 0
+    }
+    dummyRow <- c(dummyRow, k)
+  }
+  dummyMat <- rbind(dummyMat, dummyRow)
+}
+
+
+hist(rowSums(dummyMat))
+quantile(rowSums(dummyMat), .2)
+quantile(rowSums(dummyMat), .15)
+quantile(rowSums(dummyMat), .10)
+quantile(rowSums(dummyMat), .05)
+
+
+```
+

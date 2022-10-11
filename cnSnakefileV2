@@ -1,0 +1,56 @@
+### endpoint should be the combined copy-number combined call set - need to add this in mouse script 
+
+import pandas as pd
+data = pd.read_csv("/mnt/DATA6/mouseData/mouseBedsIdx.txt", sep='\t')
+
+listOfDir = data['reports']
+
+rule all:
+    input:
+        expand("/mnt/DATA6/mouseData/copynumber/{report}/segResults.txt", report = listOfDir)
+rule index:
+    input:
+        "/mnt/DATA6/mouseData/copynumber/{report}/tmp.txt"
+    output:
+        "/mnt/DATA6/mouseData/copynumber/{report}/idx.txt"
+    params:
+        normal="/mnt/DATA6/mouseData/copynumber/{report}/normals.txt"
+    shell:
+        "/usr/bin/Rscript --slave --no-restore  /mnt/DATA6/mouseData/snakemakeRscriptIdx.R -i {input} -n {params.normal} -o {output}"
+
+rule scriptInputs:
+    input:
+        "/mnt/DATA6/mouseData/copynumber/{report}/idx.txt"
+    params:
+        gc="/mnt/DATA6/mouseData/copynumber/{report}/bed.txt",
+        normals="/mnt/DATA6/mouseData/copynumber/{report}/idList.txt",
+        out="/mnt/DATA6/mouseData/copynumber/{report}/" 
+    output:
+        "/mnt/DATA6/mouseData/copynumber/{report}/amplicon.combinedCoverage.input.txt"
+    shell:
+        "perl /mnt/DATA6/mouseData/20210521_cna_inputs.pl --idx {input} --gc {params.gc} --normals {params.normals} --out {params.out}"
+
+rule copyNumber:
+    input:
+        cov="/mnt/DATA6/mouseData/copynumber/{report}/amplicon.combinedCoverage.input.txt"
+    output:
+        "/mnt/DATA6/mouseData/copynumber/{report}/cnAmplicon_matrix.txt"
+    params:
+        min="--min-amplicons-per-gene=3",
+        gc="/mnt/DATA6/mouseData/copynumber/{report}/amplicon.GCinput.txt",
+        sInfo="/mnt/DATA6/mouseData/copynumber/{report}/sampleInfo.input.txt"
+    shell:
+        "/usr/bin/Rscript --slave --no-restore /mnt/DATA6/mouseData/20200908mouseCnaScript.R {params.gc} {params.sInfo} {input.cov} {params.min}"
+
+rule segmentation:
+    input:
+        "/mnt/DATA6/mouseData/copynumber/{report}/cnAmplicon_matrix.txt"
+    params:
+        bed="/mnt/DATA6/mouseData/copynumber/{report}/bed.txt",
+        gc="/mnt/DATA6/mouseData/copynumber/{report}/gcCorrectedCounts_matrix.txt",
+        normal="/mnt/DATA6/mouseData/copynumber/{report}/normals.txt",
+        param="/mnt/DATA6/mouseData/copynumber/{report}/param.txt"
+    output:
+        "/mnt/DATA6/mouseData/copynumber/{report}/segResults.txt"
+    shell:
+        "/usr/bin/Rscript --slave --no-restore /mnt/DATA6/mouseData/20210517segmentationScript.R --bed {params.bed} --amplicon {input} --gc {params.gc} --normal {params.normal} --out {output} --param {params.param}"
