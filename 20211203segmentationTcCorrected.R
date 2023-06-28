@@ -7,6 +7,51 @@ library(stringr)
 library(foreach)
 library(doParallel)
 
+freqPlot_cn <- function(df_cn, main = NULL, chromTextSpec = NULL){
+  require(ggplot2)
+  
+  if(is.null(chromTextSpec)){
+    chromTextdf <- read.table("/mnt/DATA5/tmp/kev/misc/20210801mm10_graphingLimits.txt",
+                              sep = "\t", stringsAsFactors = FALSE, header = TRUE)
+  } else if(chromTextSpec == "mm10"){
+    chromTextdf <- read.table("/mnt/DATA5/tmp/kev/misc/20210801mm10_graphingLimits.txt",
+                              sep = "\t", stringsAsFactors = FALSE, header = TRUE)
+  } else if(chromTextSpec == "hg19") {
+    chromTextdf <- read.table("/mnt/DATA5/tmp/kev/misc/20210801hg19_graphingLimits.txt",
+                              sep = "\t", stringsAsFactors = FALSE, header = TRUE)
+  }
+  
+  chromBreak <- c(0, chromTextdf$chromBreaksPos)
+  
+  df_cn$loc.start <- df_cn$loc.start/1e6
+  df_cn$loc.end <- df_cn$loc.end/1e6
+  df_cn$col <- "#000000"
+  df_cn$col[which(df_cn$seg.mean > 0.2)] <- "#FF0000"
+  df_cn$col[which(df_cn$seg.mean < -0.2)] <- "#0000FF"
+  
+  for (i in unique(df_cn$chrom)) {
+    df_cn$loc.start[which(df_cn$chrom == i)] <- df_cn$loc.start[which(df_cn$chrom == i)] +
+      chromTextdf$graphingStart[which(chromTextdf$chrom == i)]
+    df_cn$loc.end[which(df_cn$chrom == i)] <- df_cn$loc.end[which(df_cn$chrom == i)] +
+      chromTextdf$graphingStart[which(chromTextdf$chrom == i)]
+  }
+  df_cn <- df_cn[,c("chrom", "loc.start", "loc.end", "seg.mean", "col")]
+  colnames(df_cn) <- c("chrom", "start", "end","cn", "col")
+  
+  
+  ggplot(df_cn) + geom_hline(yintercept = c(-3, -2 , -1 , 0, 1, 2, 3), color = "#D4D4D4") +
+    geom_segment(aes(x = start, xend = end, y = cn, yend = cn), colour = df_cn$col) + 
+    geom_vline(xintercept=chromBreak) + theme_bw() +
+    theme(axis.title.x=element_blank(), axis.text.x=element_blank(),
+          axis.ticks.x=element_blank(), plot.margin=grid::unit(c(0,0,0,0), "mm"),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank()) +
+    scale_x_continuous(breaks = NULL) + scale_y_continuous(breaks = seq(-3, 3, by = 1),
+                                                           limits = c(-3.2, 3.2)) +
+    geom_text(data = chromTextdf, aes(x = xpos, y = ypos + 2.3, label = chrom), size = 2.5) + ggtitle(main) +
+    theme(plot.title = element_text(hjust = 0.5))
+}
+
 option_list = list(
   make_option(c("-b", "--bed"), type="character", default=NULL, 
               help="bed file", metavar="character"),
@@ -67,15 +112,15 @@ ampSeg <- function(mouseAmplicons, mouseBedFile, outDir, minAmp){
                           
                           
                           # var just to plot - so no crazy scaling
-                          segToPlot <- segment_tmpCNA
-                          segToPlot$output$seg.mean[which(segToPlot$output$seg.mean < -4)] <- -4
-                          segToPlot$output$seg.mean[which(segToPlot$output$seg.mean > 4)] <- 4
-                          segToPlot$data[[3]][which(segToPlot$data[[3]] < -4)] <- -4
-                          segToPlot$data[[3]][which(segToPlot$data[[3]] > 4)] <- 4
-                          
-                          pdf(paste0(outDir,"segPlot_tc.",i, ".pdf"), useDingbats = FALSE)
-                          plot(segToPlot, ylim=c(-4,4))
-                          dev.off()
+                          # segToPlot <- segment_tmpCNA
+                          # segToPlot$output$seg.mean[which(segToPlot$output$seg.mean < -4)] <- -4
+                          # segToPlot$output$seg.mean[which(segToPlot$output$seg.mean > 4)] <- 4
+                          # segToPlot$data[[3]][which(segToPlot$data[[3]] < -4)] <- -4
+                          # segToPlot$data[[3]][which(segToPlot$data[[3]] > 4)] <- 4
+                          # 
+                          # pdf(paste0(outDir,"segPlot_tc.",i, ".pdf"), useDingbats = FALSE)
+                          # plot(segToPlot, ylim=c(-4,4))
+                          # dev.off()
                           
                           tmpCalls <- segments.p(segment_tmpCNA)
                           tmpCalls
@@ -277,6 +322,8 @@ segZfilt <- segZscoresFilt(segRes2, segZscores)
 #mouseAmplicons <- segRes[[2]]
 mouseBed <- segRes[[3]]
 
+segZfilt$chrom <- str_replace_all(segZfilt$chrom, "23", "20")
+
 # print out filtering cutoffs
 write.table(segZfilt, opt$out, sep = "\t", quote = FALSE,
             col.names = TRUE, row.names = FALSE)
@@ -289,3 +336,25 @@ write.table(mouseBed, paste0(outDir, "mouseProbeLoc.txt"), sep = "\t", quote = F
 stopCluster(cl)
 
 warnings()
+
+### creating segPlots
+
+segZfilt$seg.mean[which(segZfilt$seg.mean > 3)] <- 3
+segZfilt$seg.mean[which(segZfilt$seg.mean < -3)] <- -3
+
+for (i in unique(segZfilt$ID)) {
+  
+  matchingTc <- signif(tcDf$tc[match(tolower(i), tcDf$sample)], digits = 2)
+  testDf_cn <- segZfilt[which(segZfilt$ID == i),]
+  
+  g1 <- freqPlot_cn(testDf_cn, main = paste(i, "MousePanel tc: ", matchingTc))
+  grob1 <- ggplotGrob(g1)
+  
+  pdf(paste0(outDir,"segPlot_tc.",i, ".pdf"), useDingbats = FALSE, height = 5, width = 10)
+  grid::grid.newpage()
+  grid::grid.draw(rbind(grob1))
+  dev.off()
+  
+}
+
+

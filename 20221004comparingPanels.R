@@ -111,17 +111,47 @@ allGeneTable2
 
 
 
+unwantedColumns <- c("AmpliconId", "AmpliconIndex", "ChromNum", "StartPos", "EndPos", "Gene", "NumGC", "Length", "GC", "TotalPool", "Weights")
+allAmpTable <- NULL
+for (i in seq_along(listOfDir)) {
+  setwd(listOfDir[i])
+  tmpTable <- read.table("cnAmplicon_matrix.txt", stringsAsFactors = FALSE, 
+                         header = TRUE, row.names = NULL,
+                         check.names = FALSE, sep = "\t")
+  tmpTable <- tmpTable[, -which(colnames(tmpTable) %in% unwantedColumns)]
+  if (i == 1) {
+    allAmpTable <- tmpTable
+  } else{
+    allAmpTable<- cbind(allAmpTable, tmpTable[, 2:ncol(tmpTable)])
+  }
+}
+
+
+genomeInfo <- read.table("cnAmplicon_matrix.txt", stringsAsFactors = FALSE, 
+                       header = TRUE, row.names = NULL,
+                       check.names = FALSE, sep = "\t")
+genomeInfo  <- genomeInfo[, which(colnames(genomeInfo) %in% unwantedColumns)]
+
 geneBed <- NULL
 i <- geneNames[1]
 for (i in geneNames) {
   tmpBed <- mouseBed[which(mouseBed$V8 == i), ]
+  if (nrow(tmpBed) < 1) {
+    print(i)
+    next()
+  }
   tmpVec <- c(tmpBed$V1[1], min(tmpBed$V2), max(tmpBed$V3), tmpBed$V8[1])
   geneBed <- rbind(geneBed, tmpVec)
 }
 
 geneBed <- data.frame(geneBed)
-geneBed <- geneBed[-which(is.na(geneBed$X1)),]
 rownames(geneBed) <- NULL
+
+geneBed <- geneBed[-grep(paste("Rb1", "Brca1", "Nf1", "Trp53", sep = "|"), geneBed$X4),]
+
+### remove commonly altered genes in ov mice
+
+
 
 geneMatrix_df <- data.frame("Genes" = allGeneTable2$Gene, geneMatrix, check.names = FALSE)
 geneMatrix_df <- geneMatrix_df[which(geneMatrix_df$Genes %in% geneBed$X4),]
@@ -133,41 +163,161 @@ samepleNames <- colnames(geneMatrix_df2)
 samepleNames <- nameStripper(samepleNames)
 
 
+samepleNamesSnp <- colnames(allAmpTable)
+samepleNamesSnp <- nameStripper(samepleNamesSnp)
+
+
+
 # logRsegDf$chr <- paste0("chr", logRsegDf$chr)
-snpGrange <- GRanges(seqnames = logRsegDf$chr, 
+snpGrange <- GRanges(seqnames = paste0("chr", logRsegDf$chr), 
                      IRanges(logRsegDf$start, logRsegDf$end))
 
 ngsGrange <- GRanges(seqnames = geneMatrix_df2$Chromosome,
                      IRanges(start = as.numeric(geneMatrix_df2$Start), 
                              end = as.numeric(geneMatrix_df2$End)))
 
-i <- colnames(logRseg_red)[1]
+ngsAmpGrange <- GRanges(seqnames = paste0("chr", genomeInfo$ChromNum),
+                     IRanges(start = as.numeric(genomeInfo$StartPos), 
+                             end = as.numeric(genomeInfo$EndPos)))
+
+
+
+# i <- colnames(logRseg_red)[1]
 
 colnamesStripped <- str_remove(nameStripper(colnames(logRseg_red)), "\\-")
 colnamesStripped[14] <- "13085rt"
 
 finalCompRes <- NULL
+namesCol <- NULL
 for (i in seq_along(colnames(logRseg_red))) {
-  geneSignal <- unlist(geneMatrix_df2[which(samepleNames %in% colnamesStripped[i])])
-  tmpSnp <- unlist(logRseg_red[, colnames(logRseg_red)[i]])
+  geneSignal <- 2^unlist(geneMatrix_df2[which(samepleNames %in% colnamesStripped[i])])
+  if (length(geneSignal) == 0) {
+    print(colnamesStripped[i])
+    next()
+  }
+  tmpSnp <- 2^unlist(logRseg_red[, colnames(logRseg_red)[i]])
   # tmpSnp[abs(tmpSnp) < 0.2] <- 0
   tmpResSnp <- NULL
   for (j in seq_along(ngsGrange)) {
     tmpOv <- findOverlaps(ngsGrange[j], snpGrange)
     tmpResSnp <- c(tmpResSnp, mean(tmpSnp[subjectHits(tmpOv)]))
   }
-  tmpVec <- c(colnames(logRseg_red)[i], tmpResSnp/geneSignal)
-  finalCompRes <- rbind(finalCompRes, tmpVec)
+  # tmpVec <- list(colnames(logRseg_red)[i], tmpResSnp/geneSignal)
+  # finalCompRes <- rbind(finalCompRes, tmpVec)
+  finalCompRes <- cbind(finalCompRes, tmpResSnp/geneSignal)
+  namesCol <- c(namesCol, colnames(logRseg_red)[i])
 }
 
-which(is.na(as.numeric(finalCompRes[,2])))
+colnames(finalCompRes) <- namesCol
 
-finalCompRes2 <- finalCompRes[-which(is.na(as.numeric(finalCompRes[,2]))), ]
-finalCompRes2[, 2:ncol(finalCompRes2)] <- as.numeric(finalCompRes2[, 2:ncol(finalCompRes2)])
-finalCompRes3 <- t(finalCompRes2)
-colnames(finalCompRes3) <- finalCompRes3[1,]
-finalCompRes3  <- finalCompRes3[-1,]
-rownames(finalCompRes3) <- NULL
-finalCompRes3 <- data.frame(finalCompRes3)
-finalCompRes3 <- lapply(finalCompRes3, function(x) unlist(as.numeric(x)))
-boxplot(finalCompRes3, las = 2, ylim = (c(-1, 1)))
+finalCompRes2 <- finalCompRes
+rownames(finalCompRes2) <- NULL
+finalCompRes2 <- data.frame(finalCompRes2, check.names = FALSE)
+# finalCompRes2$Genes <- geneMatrix_df$Genes
+geneStats <- apply(finalCompRes2, 1, function(x) quantile(x, seq(0,1, 0.05)))
+
+geneStatsDf <- data.frame(geneStats)
+colnames(geneStatsDf) <- geneMatrix_df$Genes
+
+
+### snp
+
+finalSnp <- NULL
+namesCol2 <- NULL
+for (i in seq_along(colnames(logRseg_red))) {
+  geneSignal <- unlist(allAmpTable[which(samepleNamesSnp %in% colnamesStripped[i])])
+  if (length(geneSignal) == 0) {
+    print(colnamesStripped[i])
+    next()
+  }
+  tmpSnp <- 2^unlist(logRseg_red[, colnames(logRseg_red)[i]])
+  # tmpSnp[abs(tmpSnp) < 0.2] <- 0
+  tmpResSnp <- NULL
+  for (j in seq_along(ngsAmpGrange)) {
+    tmpOv <- findOverlaps(ngsAmpGrange[j], snpGrange)
+    tmpResSnp <- c(tmpResSnp, mean(tmpSnp[subjectHits(tmpOv)]))
+  }
+  # tmpVec <- list(colnames(logRseg_red)[i], tmpResSnp/geneSignal)
+  # finalCompRes <- rbind(finalCompRes, tmpVec)
+  finalSnp <- cbind(finalSnp, tmpResSnp/geneSignal)
+  namesCol2 <- c(namesCol2, colnames(logRseg_red)[i])
+}
+
+colnames(finalSnp) <- namesCol2
+finalSnp2 <- finalSnp
+finalSnp2
+### it seems the deciles per gene are independent of the number of amplicons used to detect a gene - noise is sample based
+### think on this and look to just do by probe
+sampleCv <- apply(finalCompRes2, 2, function(x) sd(unlist(x))/mean(unlist(x)))
+geneCv <- apply(finalCompRes2, 1, function(x) sd(unlist(x))/mean(unlist(x)))
+
+sampleZ <- apply(finalCompRes2, 2, function(x) (unlist(x) - mean(unlist(x)))/sd(unlist(x)))
+geneZ <- apply(finalCompRes2, 1, function(x) (unlist(x) - mean(unlist(x)))/sd(unlist(x)))
+
+colnames(geneZ) <- geneMatrix_df$Genes
+
+ampCounts <- NULL
+for (i in geneMatrix_df$Genes) {
+  tmpMBed <- mouseBed[which(mouseBed$V8 == i),]
+  tmpCounts <- nrow(tmpMBed)
+  names(tmpCounts) <- i
+  ampCounts <- c(ampCounts, tmpCounts)
+}
+
+gcContent <- NULL
+for (i in colnames(geneZ)) {
+  tmpGc <- mean(genomeInfo$GC[which(genomeInfo$Gene == i)])
+  gcContent <- c(gcContent, tmpGc)
+}
+
+names(gcContent) <- colnames(geneZ)
+meanGene <- apply(finalCompRes2, 1, mean)
+names(meanGene) <- colnames(geneZ)
+
+meanGene[which(meanGene < 0.9)]
+meanGene[which(meanGene > 1.1)]
+
+gcContent[which(names(gcContent) %in% names(meanGene[which(meanGene < 0.9)]))]
+gcContent[which(names(gcContent) %in% names(meanGene[which(meanGene > 1.1)]))]
+
+
+geneCvSnp <- apply(finalSnp2, 1, function(x) sd(x)/mean(x))
+
+par(mfrow=c(2,2))
+
+par(cex.axis = 0.5)
+boxplot(geneStatsDf, las = 2, ylim = c(0, 2), main = "cnr ratio ngs/snp",
+        xlab = "genes", ylab = "cnr(ngs)/cnr(snp)")
+axis(2, at = seq(0, 2, 0.1), las = 2)
+
+plot(ampCounts, geneCv,  main = "coefficient of var. vs # amplicons",
+     xlab = "coefficient of var per gene", ylab = "amplicon count")
+
+par(cex.axis = 0.5)
+boxplot(t(geneZ), las = 2, ylim = c(-3, 3), main = "z-score of genes between samples",
+        xlab = "z-score", ylab = "sample")
+axis(2, at = seq(-3, 3, 0.5), las = 2)
+
+plot(gcContent, meanGene, main = "GC content vs meanGene", 
+     xlab = "GC content", ylab = "mean gene ratio of cnr (ngs/snp)")
+
+### looking more in depth into SNps
+
+
+boxplot(t(finalSnp2), xaxt="n", ylim = c(0,2))
+boxplot(geneCvSnp, ylim = c(0,1))
+quantile(geneCvSnp, seq(0,1, 0.05), na.rm = TRUE)
+genomeInfo[which(is.na(as.numeric(geneCvSnp))),]
+genomeInfo[which(geneCvSnp > 0.3),]
+geneCvSnp[which(geneCvSnp > 0.3)]
+rownames(finalSnp2) <- NULL
+allProbes <- as.vector(finalSnp2)
+allProbes <- allProbes[-which(is.na(allProbes))]
+meanAll <- mean(allProbes)
+sdAll <- sd(allProbes)
+snpZscore <- apply(finalSnp2, 1, function(x) (x - meanAll)/sdAll)
+
+boxplot(snpZscore, ylim = c(0,5), xaxt="n")
+boxplot(snpZscore, xaxt="n")
+
+genomeInfo$cv <- geneCvSnp
