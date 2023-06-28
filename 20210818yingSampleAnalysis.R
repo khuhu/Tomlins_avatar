@@ -1,3 +1,10 @@
+
+statsTab1 <- read.table("/mnt/DATA3/eros_tmp/Auto_user_AUS5-156-MG_Fearon_20210809_374_382/plugin_out/coverageAnalysis_out.757/Auto_MG_Fearon_20210809_eros_382.bc_summary.xls",
+                        sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+statsTab2 <- read.table("/mnt/DATA3/eros_tmp/Auto_user_AUS5-120-MG_EFD4_BBN_334_304/plugin_out/coverageAnalysis_out.577/Auto_MG_EFD4_BBN_eros_304.bc_summary.xls",
+                        sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+
+
 fearonCn1 <- read.table("/mnt/DATA6/mouseData/customCnRuns/Auto_user_AUS5-156-MG_Fearon_20210809_374_382/cnMatrix_gene.txt",
                         sep = "\t", stringsAsFactors = FALSE, header = TRUE)
 
@@ -19,7 +26,8 @@ fearonSeg2 <- read.table("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-120-MG_
 fearonSeg3 <- read.table("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-157-MG_Fearon_20210809_2_375_384/segResults.txt",
                          sep = "\t", stringsAsFactors = FALSE, header = TRUE)
 
-annoTable <- readxl::read_xlsx("/mnt/DATA5/tmp/kev/misc/20210817samplesForYingAnno.xls")
+# annoTable <- readxl::read_xlsx("/mnt/DATA5/tmp/kev/misc/20210817samplesForYingAnno.xls")
+annoTable <- readxl::read_xlsx("/mnt/DATA5/tmp/kev/misc/20210817samplesForYingAnno_withD6.xlsx")
 
 combinedCalls1 <- read.table("/mnt/DATA6/mouseData/customCnRuns/Auto_user_AUS5-156-MG_Fearon_20210809_374_382/combinedCalls.txt",
                             sep = "\t", stringsAsFactors = FALSE, header = TRUE)
@@ -27,7 +35,18 @@ combinedCalls1 <- read.table("/mnt/DATA6/mouseData/customCnRuns/Auto_user_AUS5-1
 combinedCalls2 <- read.table("/mnt/DATA6/mouseData/customCnRuns/Auto_user_AUS5-120-MG_EFD4_BBN_334_304/combinedCalls.txt",
                             sep = "\t", stringsAsFactors = FALSE, header = TRUE)
 ### cn
-samps <- c(paste0("D", 10:33), paste0("D0", c(8,9)))
+# samps <- c(paste0("D", 10:33), paste0("D0", c(8,9)))
+samps <- c(paste0("D", 10:33), paste0("D0", c(6,8,9)))
+
+allStats <- rbind(statsTab1, statsTab2)
+allStats_2 <- allStats[grep(paste0(samps, collapse = "|"),
+                            allStats$Sample.Name),]
+mean(allStats_2$Mapped.Reads)
+summary(allStats_2$Mean.Depth)
+
+### 20210921 new samps for paper
+samps <- c(paste0("D", c(10:13,20)), paste0("D0", c(8,9)))
+
 
 fearonSeg_combined <- rbind(fearonSeg1, fearonSeg2)
 fearonSeg_combined <- fearonSeg_combined[grep(paste0(samps, collapse = "|"),
@@ -63,9 +82,13 @@ fearonCn_comb <- fearonCn_comb[, order(colnames(fearonCn_comb))]
 
 tc <- 1 - 2^fearonCn_comb[which(rownames(fearonCn_comb) == "Trp53Del"),]
 tc_labels <- tc
-tc_labels[c(5,6,13)] <- 0
+# tc_labels[c(5,6,13)] <- 0
+# tc_labels[c(6,7,14)] <- 0
+tc_labels[,5:7] <- 0
 
-tc[c(5,6,13)] <- 1
+# tc[c(5,6,13)] <- 1
+# tc[c(6,7,14)] <- 1
+tc[c(5:7)] <- 1
 tc[which(tc < 0.5)] <- 0.5
 fearonCn_comb <- sweep(fearonCn_comb, 2, as.numeric(tc), "/")
 fearonCn_comb[fearonCn_comb < -3] <- -3
@@ -74,7 +97,8 @@ dels <- fearonCn_comb[grep("Del", rownames(fearonCn_comb)),]
 fearonCn_comb <- fearonCn_comb[-grep("Del", rownames(fearonCn_comb)),]
 fearonCn_comb[fearonCn_comb > log2(2/3) & fearonCn_comb < log(4/3)] <- 0
 fearonCn_comb <- t(fearonCn_comb)
-rownames(fearonCn_comb) <- annoTable$`New Sample ID`
+rownames(fearonCn_comb) <- annoTable$`New Sample ID`[grep("D8|D9|D10|D11|D12|D13|D20",
+                                                          annoTable$`Sequencing name`)]
 fearonCn_comb[fearonSigMat == 0] <- 0
 
 xGenes <- c("Frmpd4", "Diaph2", "Atrx", "Med12", "Ar", "Enox2", "Bcor", "Aurkc")
@@ -90,18 +114,18 @@ heatMapCol <- colorRampPalette(c("#3852A3","#FFFFFF","#EC1E24"))(1000)
 colors.breaks <- seq(-3,3,6/1000)
 
 heatmap_graph <- pheatmap(mat = fearonCn_comb, cluster_rows = TRUE, cluster_cols = FALSE, color = heatMapCol,
-                          breaks = colors.breaks, fontsize = 5, cellwidth = 5, cellheight = 10, silent = FALSE,
+                          breaks = colors.breaks, fontsize = 5, cellwidth = 5, cellheight = 20, silent = FALSE,
                           border_color = "black", annotation_row = annoTab2, annotation_colors = annoCol)
 
 dev.off()
-pdf("/mnt/DATA5/tmp/kev/misc/20210917yingHeatmap_genes.pdf", useDingbats = TRUE, width = 15, height = 15)
+pdf("/mnt/DATA5/tmp/kev/misc/20210920yingHeatmap_genes.pdf", useDingbats = TRUE, width = 15, height = 15)
 heatmap_graph
 dev.off()
 
 dels <- t(dels)
 heatmap_graph_dels <- pheatmap(dels[heatmap_graph$tree_row$order,], cluster_rows = FALSE, cluster_cols = FALSE,
                                color = heatMapCol,breaks = colors.breaks, fontsize = 5, cellwidth = 5,
-                               cellheight = 10,silent = FALSE, border_color = "black")
+                               cellheight = 20,silent = FALSE, border_color = "black")
 
 
 heatMapCol_tc <- colorRampPalette(c("#FFFFFF","#FFA500"))(100)
@@ -109,15 +133,15 @@ colors.breaks_tc <- seq(0,1,1/100)
 tc_labels <- t(tc_labels)
 heatmap_graph_tc <- pheatmap(tc_labels[heatmap_graph$tree_row$order,], cluster_rows = FALSE, cluster_cols = FALSE,
                                color = heatMapCol_tc, breaks = colors.breaks_tc, fontsize = 5, cellwidth = 5,
-                               cellheight = 10,silent = FALSE, border_color = "black")
+                               cellheight = 20,silent = FALSE, border_color = "black")
 
 dev.off()
-pdf("/mnt/DATA5/tmp/kev/misc/20210917yingHeatmap_del.pdf", useDingbats = TRUE, width = 15, height = 15)
+pdf("/mnt/DATA5/tmp/kev/misc/20210920yingHeatmap_del.pdf", useDingbats = TRUE, width = 15, height = 15)
 heatmap_graph_dels
 dev.off()
 
 dev.off()
-pdf("/mnt/DATA5/tmp/kev/misc/20210917yingHeatmap_tc.pdf", useDingbats = TRUE, width = 15, height = 15)
+pdf("/mnt/DATA5/tmp/kev/misc/20210920yingHeatmap_tc.pdf", useDingbats = TRUE, width = 15, height = 15)
 heatmap_graph_tc
 dev.off()
 
@@ -146,4 +170,6 @@ combinedVars_goodsamps_exon <- combinedVars_goodsamps_exon[-grep("nonframeshift"
 combinedVars_goodsamps_exon <- combinedVars_goodsamps_exon[-grep("^synonymous SNV",
                                                                  combinedVars_goodsamps_exon$ExonicFunc.refGene),]  
 combinedVars_goodsamps_exon <- combinedVars_goodsamps_exon[grep(paste0(samps, collapse = "|"), combinedVars_goodsamps_exon$Sample),]
+
+
 

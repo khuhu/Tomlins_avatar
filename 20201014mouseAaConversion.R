@@ -343,7 +343,7 @@ substr(otherProtein, tmpAaPos - 2, tmpAaPos + 2)
 ###
 ###
 
-brafV600Conversion <- aaToGenome(gene = "DNMT3A", position = 882)
+brafV600Conversion <- aaToGenome(gene = "BRAF", position = 600)
 liftOverOut <- cdsLiftOver(brafV600Conversion, chainFile = h38toMm10Chain)
 newGeneName <- geneNameDf$mmusculus_homolog_associated_gene_name[which(geneNameDf$external_gene_name == checkInput[[3]]$gene)]
 

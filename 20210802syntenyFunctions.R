@@ -101,7 +101,7 @@ calcZscore <- function(segRes){
 ### this filt shold be used since it zeroes out instead of filtering out
 ### problem for copynumber getFreqData
 
-segZscoresFilt_zeroOut <- function(segResults){
+segZscoresFilt_zeroOut <- function(segResults, abs=FALSE){
   segmental_zscores <- segResults
   # filts for significance, cn-change and length
   # segmental_zscores <- cbind(segResults, "z-scores" = zscores[["z_vector"]],
@@ -114,8 +114,17 @@ segZscoresFilt_zeroOut <- function(segResults){
   #segmental_zscores2$seg.mean[which(segmental_zscores2$length <= largeChromCutoff)] <- 0
   #segmental_zscores2$seg.mean[which(abs(segmental_zscores2$`z-scores`) < 1.645)] <- 0
   # this cutoff accounts for triploid
-  segmental_zscores2$seg.mean[-which(segmental_zscores2$seg.mean < -0.66 | segmental_zscores2$seg.mean > 0.268)] <- 0
-  segInput <- segmental_zscores2[,c("ID", "chrom", "loc.start", "loc.end", "seg.mean")]
+  
+  if (abs == TRUE) {
+    segInput <- segmental_zscores2[,c("ID", "chrom", "loc.start", "loc.end", "absCnCor")]
+  } else{
+    # segmental_zscores2$seg.mean[which(segmental_zscores2$seg.mean < -0.66 | segmental_zscores2$seg.mean > 0.268)] <- 0
+    # segmental_zscores2$seg.mean[which(abs(segmental_zscores2$seg.mean) < 0.2 | segmental_zscores2$q.val2 > 0.05)] <- 0
+    segmental_zscores2$seg.mean[which(abs(segmental_zscores2$seg.mean) < 0.2)] <- 0
+    segmental_zscores2$seg.mean[which(segmental_zscores2$q.val2 > 0.05)] <- 0
+    #segmental_zscores2$seg.mean[which(segmental_zscores2$length < 5e3)] <- 0
+    segInput <- segmental_zscores2[,c("ID", "chrom", "loc.start", "loc.end", "seg.mean")]
+  }
   return(segInput)
 }
 
@@ -154,6 +163,7 @@ syntenyPlotInputsFreqV2 <- function(segInput){
   return(resList)
 }
 
+
 getFreqData <- function(data){
   require(copynumber)
   #Check if segments or data:
@@ -171,12 +181,12 @@ getFreqData <- function(data){
     colnames(bpts) <- c("chrom","pos")
     
     #Then interpolate to get pcf-val in all breakpoints
-    data = interpolate.pcf(data, bpts) 
+    data = interpolate.pcf(data, bpts)
   }
   #If not segments, the input data should already be on an appropriate format (chrom, pos, estimates)
   
   return(data) 
-} 
+}
 
 
 downsampleRegions <- function(df){
@@ -309,11 +319,11 @@ ampsDels <- function(df){
 
 # give this 3 outputs: arm, cna, count table
 
-separateSegments_tcgaV3 <- function(df, ploidyDf){
+separateSegments_tcgaV3 <- function(df, ploidyDf, minLength = 5000000){
   
   # this was genius and got rid of the loop - literally infinitely faster *pats self on back*
-  df$newTotalCN <- round2(df$Copynumber - ploidyDf$ploidy[match(df$Sample, ploidyDf$array)], 0)
-  
+  df$newTotalCN <- df$Copynumber - round2(ploidyDf$ploidy[match(df$Sample, ploidyDf$array)], 0)
+
   comb <- function(x, ...) {
     lapply(seq_along(x),
            function(i) c(x[[i]], lapply(list(...), function(y) y[[i]])))
@@ -338,7 +348,7 @@ separateSegments_tcgaV3 <- function(df, ploidyDf){
                       df_chr <- sampDf[sampDf$Chromosome == j,]
                       df_chr <- df_chr[order(df_chr$Start),]
                       minLength80 <- human_arm$length80[which(human_arm$chrom == j)]
-                      minLength <- 15000000
+                      minLength <- minLegth
                       aTable <- df_chr
                       cTable <- df_chr
                       aTable$newTotalCN <- 0
@@ -540,7 +550,7 @@ separateSegments_tcgaV3 <- function(df, ploidyDf){
 
 
 # this version is a mix of total coverage >= 80% and sign
-separateSegments_mV4 <- function(df, chromSizes = NULL){
+separateSegments_mV4 <- function(df, chromSizes = NULL, minLength = 5000000, percentage = 0.8){
   df$length <- df$end.pos - df$start.pos
   
   comb <- function(x, ...) {
@@ -570,14 +580,14 @@ separateSegments_mV4 <- function(df, chromSizes = NULL){
                       cTable$mean <- 0
                       
                       if (is.null(chromSizes)) {
-                        minLength80 <- sum(df_chr$length) * 0.8
+                        minLength80 <- sum(df_chr$length) * percentage
                       } else{
-                        minLength80 <- chromSizes$length[which(chromSizes$chr == j)] * 0.8
+                        minLength80 <- chromSizes$length[which(chromSizes$chr == j)] * percentage
                       }
                       
                       
                       #minLength80 <- sum(df_chr$length) * 0.8
-                      minLength <- 15000000
+                      minLength <- minLength
                       # new loop below gets segments of gains or losses
                       delIdx <- which(sign(df_chr$mean) == -1)
                       ampIdx <- which(sign(df_chr$mean) == 1)
@@ -1177,13 +1187,48 @@ fgaCalculator_amp <- function(df, chromSize = NULL){ # works for any amplicon pa
     } else{
       fga <- sum(sampDf$length[nonZeroes])/chromSize$length[which(chromSize$chr == i)]
     }
-    fga <- sum(sampDf$length[nonZeroes])/sum(sampDf$length)
+    # fga <- sum(sampDf$length[nonZeroes])/sum(sampDf$length)
     res <- rbind(res, c(i, fga))
   }
   res <- data.frame(res, stringsAsFactors = FALSE)
   res$X2 <- as.numeric(res$X2)
   return(res)
 }
+
+
+
+
+
+
+
+
+
+fgaCalculator_genes_amp <- function(df){ # works for any amplicon panel
+  res <- NULL
+  m_exon_boundaries <- read.table("/mnt/DATA5/tmp/kev/misc/20210617mm10ExonBoundaries.txt", sep = "\t",
+                                  stringsAsFactors = FALSE, header = TRUE)
+  m_exon_boundaries$chrom <- str_replace(m_exon_boundaries$chrom, "X", "20")
+  mGrange <- GRanges(seqnames = m_exon_boundaries$chrom,
+                     IRanges(start = m_exon_boundaries$start,
+                             end = m_exon_boundaries$end))
+  for (i in unique(df$sampleID)) {
+    sampDf <- df[which(df$sampleID == i),]
+    sampGrange <- GRanges(seqnames = sampDf$chrom,
+                          IRanges(start = sampDf$start.pos,
+                                  end = sampDf$end.pos))
+    totalGenes <- length(queryHits(findOverlaps(mGrange, sampGrange)))
+    nonZeroes <- which(sign(sampDf$mean) != 0)
+    alteredGenes <- length(queryHits(findOverlaps(mGrange, sampGrange[nonZeroes])))
+    
+    fga <- alteredGenes/totalGenes
+    res <- rbind(res, c(i, fga))
+  }
+  res <- data.frame(res, stringsAsFactors = FALSE)
+  res$X2 <- as.numeric(res$X2)
+  return(res)
+}
+
+
 
 enrichmentBarplot <- function(df){
   require(ggplot2)
@@ -1198,3 +1243,14 @@ enrichmentBarplot <- function(df){
     ggtitle("Significant pathway correlation") + xlab("Hallmarks pathways") + ylab("Pearson corr")
   
 }
+
+
+nameStripper <- function(df){
+  df <- str_remove(df, "_MG_X.*")
+  df <- str_remove(str_remove(df, "^X"), "_X.*")
+  df <- tolower(str_remove_all(str_remove_all(str_remove(df, "X.*"), "_"), "\\."))
+  df  <- str_remove(df, "o")
+  df  <- str_replace_all(df, " ", "")
+  return(df)
+}
+

@@ -9,6 +9,26 @@
 source("/home/kevhu/scripts/20201020hotspotConversionFunctions.R")
 
 
+### slight alteration for matching gene names
+genomeToAA <- function(liftOverRes){
+  ### make this work for any species to any species at a later date
+  # tmpGeneName <- geneNameDf$mmusculus_homolog_associated_gene_name[which(geneNameDf$external_gene_name == liftOverRes$gene)]
+  tmpGeneName <- geneNameDf$mmusculus_homolog_associated_gene_name[grep(paste0("^", liftOverRes$gene, "$"), geneNameDf$external_gene_name)]
+  genomeCdsTmpTable <- mm10biomartTable[which(mm10biomartTable$external_gene_name == tmpGeneName),]
+  genomeCdsTmpTable <- cdsConversion(genomeCdsTmpTable)
+  
+  cdsRangeBp <- IRanges(start = liftOverRes$start, end = liftOverRes$end)
+  cdsExonRangeBp <- IRanges(start = genomeCdsTmpTable$exon_chrom_start, end = genomeCdsTmpTable$exon_chrom_end)
+  cdsExon <- genomeCdsTmpTable[subjectHits(findOverlaps(cdsRangeBp, cdsExonRangeBp)),]
+  
+  ### the subtraction of end/start depends on strand
+  tmpPos <- cdsExon$cds_start + abs(cdsExon$strand_cds_start_conv - mean(c(liftOverRes$start, liftOverRes$end))) - 1
+  tmpAaPos <- ceiling(tmpPos/3)
+  
+  ### might need to return more
+  return(tmpAaPos)
+}
+
 small_cosmic <- read.table("/home/kevhu/data/20190225mouseConvertedOncogeneHotspots.txt",
                            sep = "\t", stringsAsFactors = FALSE, header = TRUE)
 hotspots <- unique(small_cosmic$Hotspot.Residue)
@@ -30,7 +50,8 @@ hotspotDf <- data.frame(hotspotDf, stringsAsFactors = FALSE)
 
 
 hotspotDf <- hotspotDf[-which(hotspotDf == "GNAS"),] # different transcript ID
-#hotspotDf <- hotspotDf[-which(hotspotDf == "GNAQ"),] # the name searching method is off -----------------------fixed 
+# hotspotDf <- hotspotDf[-which(hotspotDf == "GNA11"),]
+hotspotDf <- hotspotDf[-which(hotspotDf == "GNAQ"),] # the name searching method is off -----------------------fixed
 hotspotDf <- hotspotDf[-which(hotspotDf == "H3F3A"),] # Lower case is mouse name H3F3A, hg38 name is H3-3A
 hotspotDf <- hotspotDf[-which(hotspotDf == "DNMT3A"),] # not canonical isoform? - liftOver empty
 hotspotDf <- hotspotDf[-which(hotspotDf == "FOXL2"),] # msa error - no seq2 - missing mouse peptide

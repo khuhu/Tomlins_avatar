@@ -51,6 +51,8 @@ library(stringr)
 
 tcDf <- read.table("/mnt/DATA5/tmp/kev/misc/20210718hgscTcDf.txt", sep = "\t", stringsAsFactors = FALSE, header = TRUE)
 
+### KC-01 to 05 is in mixe run with frearon samples
+
 statsTab1 <- read.table("/mnt/DATA3/eros_tmp/Auto_user_AUS5-138-MG_cho_20210621_354_343/plugin_out/coverageAnalysis_out.668/Auto_MG_cho_20210621_eros_343.bc_summary.xls",
            sep = "\t", header = TRUE, stringsAsFactors = FALSE)
 

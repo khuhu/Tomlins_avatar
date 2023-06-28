@@ -18,6 +18,12 @@ segResults_3 <- read.table("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-142-M
                            header = TRUE, stringsAsFactors = FALSE, sep = "\t")
 segResults_4 <- read.table("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-76-MG_test1_255_185/segResults.txt",
                            header = TRUE, stringsAsFactors = FALSE, sep = "\t")
+segResults_5 <- read.table("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-156-MG_Fearon_20210809_374_382/segResults.txt",
+                           header = TRUE, stringsAsFactors = FALSE, sep = "\t")
+segResults_6 <- read.table("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-157-MG_Fearon_20210809_2_375_384/segResults.txt",
+                           header = TRUE, stringsAsFactors = FALSE, sep = "\t")
+segResults_7 <- read.table("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-120-MG_EFD4_BBN_334_304/segResults.txt",
+                           header = TRUE, stringsAsFactors = FALSE, sep = "\t")
 
 cnCalls_1 <- read.table("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-138-MG_cho_20210621_354_343/cnMatrix_gene.txt",
                         header = TRUE, stringsAsFactors = FALSE, sep = "\t")
@@ -26,6 +32,12 @@ cnCalls_2 <- read.table("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-141-MG_c
 cnCalls_3 <- read.table("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-142-MG_cho_20210701_357_353/cnMatrix_gene.txt",
                         header = TRUE, stringsAsFactors = FALSE, sep = "\t")
 cnCalls_4 <- read.table("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-76-MG_test1_255_185/cnMatrix_gene.txt",
+                        header = TRUE, stringsAsFactors = FALSE, sep = "\t")
+cnCalls_5 <- read.table("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-156-MG_Fearon_20210809_374_382/cnMatrix_gene.txt",
+                        header = TRUE, stringsAsFactors = FALSE, sep = "\t")
+cnCalls_6 <- read.table("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-157-MG_Fearon_20210809_2_375_384/cnMatrix_gene.txt",
+                        header = TRUE, stringsAsFactors = FALSE, sep = "\t")
+cnCalls_7 <- read.table("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-120-MG_EFD4_BBN_334_304/cnMatrix_gene.txt",
                         header = TRUE, stringsAsFactors = FALSE, sep = "\t")
 
 
@@ -94,7 +106,9 @@ hgsc_anno2_tp53_brca12 <- hgsc_anno2_tp53[which(hgsc_anno2_tp53$BRCA1_CNA == "ho
 #all_segRes <- rbind(segResults_1, segResults_2, segResults_3, segResults_4)
 
 all_cnCalls <- cbind(cnCalls_1[grep("Del", cnCalls_1$Gene),], cnCalls_2[grep("Del", cnCalls_2$Gene),2:ncol(cnCalls_2)],
-                     cnCalls_3[grep("Del", cnCalls_3$Gene),2:ncol(cnCalls_3)], cnCalls_4[grep("Del", cnCalls_4$Gene),2:ncol(cnCalls_4)])
+                     cnCalls_3[grep("Del", cnCalls_3$Gene),2:ncol(cnCalls_3)], cnCalls_4[grep("Del", cnCalls_4$Gene),2:ncol(cnCalls_4)],
+                     cnCalls_5[grep("Del", cnCalls_5$Gene),2:ncol(cnCalls_5)], cnCalls_6[grep("Del", cnCalls_6$Gene),2:ncol(cnCalls_6)],
+                     cnCalls_7[grep("Del", cnCalls_7$Gene),2:ncol(cnCalls_7)])
 all_cnCalls <- all_cnCalls[,-which(duplicated(colnames(all_cnCalls)))]
 
 all_probes_grange <- GRanges(seqnames = Rle(zscore_gc_oe_ratios$ChromNum),
@@ -195,7 +209,7 @@ brca_cna_del_bed <- reducingFreqBed(ampDels_brca_cna[[3]], ampDels_brca_cna[[4]]
 
 
 
-all_segRes <- rbind(segResults_1, segResults_2, segResults_3, segResults_4)
+all_segRes <- rbind(segResults_1, segResults_2, segResults_3, segResults_4, segResults_5, segResults_6, segResults_7)
 all_segRes <- all_segRes[-which(all_segRes$ID %in% mouseNormal),]
 all_segRes$ID <- str_remove(all_segRes$ID, "_MG_X.*")
 all_segRes$ID <- str_remove(str_remove(all_segRes$ID, "^X"), "_X.*")
