@@ -41,6 +41,12 @@ if (is.null(opt$output)){
 }
 
 setwd(paste0(opt$input))
+<<<<<<< HEAD
+=======
+### setwd("/mnt/DATA6/mouseData/vcfs/Auto_user_AUS5-141-MG_cho_202106_3TS_356_349")
+
+
+>>>>>>> 6f890ca6623642cbf688fc5d35dabc99114bd619
 bedFile <- read.table("bedfile.txt" ,stringsAsFactors = FALSE)
 bedName <- sub(x = bedFile$V1, pattern = "\\.gc\\.bed", replacement = "")
 
@@ -52,6 +58,12 @@ fullAnnoTable <- NULL
 for(i in listOfAnnotationFiles){
   sampleName <- sub(x = i, pattern = "*\\.mm10_multianno\\.txt", replacement = "")
   filename <- paste0(opt$input,"/",i)
+<<<<<<< HEAD
+=======
+  
+  ### test
+  # filename <- paste0("/mnt/DATA6/mouseData/vcfs/Auto_user_AUS5-141-MG_cho_202106_3TS_356_349","/",i)
+>>>>>>> 6f890ca6623642cbf688fc5d35dabc99114bd619
   ### fails on empty files, so that's why tryCatch used
   tmpVcf <- tryCatch(read.table(filename, sep = "\t", skip = 1),
                      error=function(x) return(NULL))

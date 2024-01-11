@@ -42,7 +42,16 @@ for (i in mouseBeds$directories) {
   setwd(i)
   summaryFile <- system('find . -name *bc_summary.xls | grep -v "scraper" | grep -v "dummyCov"', intern = TRUE)
   summaryFile <- sub("./", i, summaryFile)
+<<<<<<< HEAD
   
+=======
+  if (length(summaryFile) > 1) {
+    summaryFile <- summaryFile[which(nchar(summaryFile) == max(nchar(summaryFile)))]
+    if (length(summaryFile) > 1) {
+      summaryFile <- summaryFile[order(summaryFile, decreasing = TRUE)][1]
+    }
+  }
+>>>>>>> 6f890ca6623642cbf688fc5d35dabc99114bd619
   summaryFileList <- c(summaryFileList, summaryFile)
   
   variantDir <- system('find . -type d -name variantCaller*', intern = TRUE)

@@ -1,0 +1,29 @@
+### used for genotyping
+
+import pandas as pd
+data = pd.read_csv("/mnt/DATA6/mouseData/mouseBedsIdx_singleton.txt", sep='\t')
+
+listOfDir = data['reports']
+
+
+
+rule all:
+    input:
+        expand("/mnt/DATA6/mouseData/vcfs/{report}/combinedVcf.filt.vcf.gz", report=listOfDir)
+        #expand("/mnt/DATA6/mouseData/{report}/genotype.5.P", report=listOfDir)
+
+rule combineVcf:
+    input:
+        "/mnt/DATA6/mouseData/vcfs/{report}/listOfVcfs.txt"
+    output:
+        "/mnt/DATA6/mouseData/vcfs/{report}/combinedVcf.vcf.gz"
+    shell:
+        "bcftools merge -l {input} -Oz -o {output} && tabix -p vcf {output}"
+
+rule filterVcf:
+    input:
+        "/mnt/DATA6/mouseData/vcfs/{report}/combinedVcf.vcf.gz"
+    output:
+        "/mnt/DATA6/mouseData/vcfs/{report}/combinedVcf.filt.vcf.gz"
+    shell:
+        "bcftools filter -R 20210131snpsRegionFile_withchr.txt {input} -Oz -o {output} && tabix -p vcf {output}"

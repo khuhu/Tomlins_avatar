@@ -23,7 +23,7 @@ RUN apt-get update && apt-get install --yes \
     libbz2-dev \
     wget && \
     export JAVA_HOME="/opt/java/jre/" && export PATH=$PATH:$JAVA_HOME/bin && \
-    pip3 install snakemake && pip3 install pandas && \
+    pip3 install snakemake==5.26.1 && pip3 install pandas && \
     wget https://cran.r-project.org/bin/linux/ubuntu/bionic-cran35/r-base_3.6.3.orig.tar.gz && \
     tar -xvzf /opt/r-base_3.6.3.orig.tar.gz && cd R-3.6.3/ &&  ./configure && make && cd /opt/ && \
     mkdir -p /mnt/DATA6/mouseData/ && mkdir -p /usr/bin/ && mkdir -p /mnt/tmp/ && \
@@ -51,8 +51,4 @@ WORKDIR /mnt/DATA6/mouseData/
 
 CMD /usr/bin/Rscript --vanilla 20210520vcfInputs.R && \
     snakemake --snakefile annotationSnakefileV2 -k --jobs 10 || true && \
-<<<<<<< HEAD
-    snakemake --snakefile combinedAnno --jobs 5 
-=======
     snakemake --snakefile combinedAnno -k --jobs 5 
->>>>>>> 6f890ca6623642cbf688fc5d35dabc99114bd619

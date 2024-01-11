@@ -98,6 +98,11 @@ if(!is.null(normals)){
 
 finalTable[,1] <- apply(finalTable, 2,FUN = function(x) {sub("-","_", x)})[,1]
 
+<<<<<<< HEAD
+=======
+finalTable[,1][which(finalTable[,1] == "None")] = paste0(finalTable[,1][which(finalTable[,1] == "None")],
+                                                         "_", finalTable[,2][which(finalTable[,1] == "None")])
+>>>>>>> 6f890ca6623642cbf688fc5d35dabc99114bd619
 
 write.table(x = finalTable, file = opt$out,
             sep = '\t',row.names = FALSE, quote = FALSE, col.names = FALSE)

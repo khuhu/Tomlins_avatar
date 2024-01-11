@@ -1,0 +1,24 @@
+### endpoint should be the combined copy-number combined call set - need to add this in mouse script 
+
+import pandas as pd
+data = pd.read_csv("/mnt/DATA6/mouseData/20211203mouseBeds_tc.txt", sep='\t')
+
+listOfDir = data['reports']
+
+rule all:
+    input:
+        expand("/mnt/DATA6/mouseData/copynumber/{report}/segResults_tc.txt", report = listOfDir)
+
+
+rule segmentation:
+    input:
+        "/mnt/DATA6/mouseData/copynumber/{report}/cnAmplicon_matrix.txt"
+    params:
+        bed="/mnt/DATA6/mouseData/copynumber/{report}/bed.txt",
+        gc="/mnt/DATA6/mouseData/copynumber/{report}/gcCorrectedCounts_matrix.txt",
+        normal="/mnt/DATA6/mouseData/copynumber/{report}/normals.txt",
+        param="/mnt/DATA6/mouseData/copynumber/{report}/param.txt"
+    output:
+        "/mnt/DATA6/mouseData/copynumber/{report}/segResults_tc.txt"
+    shell:
+        "/usr/bin/Rscript --slave --no-restore /mnt/DATA6/mouseData/20211203segmentationTcCorrected.R --bed {params.bed} --amplicon {input} --gc {params.gc} --normal {params.normal} --out {output} --param {params.param}"

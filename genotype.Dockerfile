@@ -50,9 +50,5 @@ WORKDIR /mnt/DATA6/mouseData/
 # loop may ensue i.e thinks there is new vcf from combined -> new combined
 
 CMD /usr/bin/Rscript --vanilla 20210520vcfInputs.R && \
-    snakemake --snakefile annotationSnakefileV2 -k --jobs 10 || true && \
-<<<<<<< HEAD
+    snakemake --snakefile annotationSnakefileV2 --jobs 10 && \
     snakemake --snakefile combinedAnno --jobs 5 
-=======
-    snakemake --snakefile combinedAnno -k --jobs 5 
->>>>>>> 6f890ca6623642cbf688fc5d35dabc99114bd619

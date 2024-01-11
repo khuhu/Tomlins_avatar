@@ -1,0 +1,1662 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+### Self-note: filter out lower level events i.e the ratio of a single-copy gain or loss in a tetraploid enviorment i.e
+### log2(3/4) & log2(5/4)
+
+## Instruction:
+# First run all the CNVEX functions code chunk
+# source functions from previous
+# Then run the modified functions
+# Then adjust all the addresses used in "Kevin analysis" code chunk
+
+Steps 1 & 2 saved
+```{r results = 'hide'}
+# save.image(file = "/mnt/DATA5/tmp/kev/misc/20210831noshadFunctionsLoaded.RData")
+load("/mnt/DATA5/tmp/kev/misc/20210831noshadFunctionsLoaded.RData")
+
+files.sources = list.files("/mnt/DATA5/tmp/kev/programs/cnvex/R/");
+files.sources <- paste0("/mnt/DATA5/tmp/kev/programs/cnvex/R/", files.sources);
+sapply(files.sources, source);
+opts <- readRDS("/mnt/DATA5/tmp/kev/misc/opts.rds");
+```
+
+
+
+Kevin analysis
+```{r}
+library(data.table)
+library(doParallel)
+library(foreach)
+library(GenomicRanges)
+library(gtools)
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(raster)
+library(ggpubr)
+library(jointseg)
+
+extraCols <- c("AmpliconIndex", "ChromNum", "StartPos", "EndPos", "Gene", "NumGC",
+               "Length", "GC", "TotalPool", "Weights")
+
+# genes = read_rds("~/Codes/TPO/tpo-sane1/genes.rds")
+gobj <- getGobj("mm10", NULL, FALSE)
+
+# segs    <- fread("/mctp/users/noshadh/data/tmp/KevinAnalysis/20210821allChoSegRes.txt")
+# lrs     <- fread("/mctp/users/noshadh/data/tmp/KevinAnalysis/20210821probeFile.txt")
+# probloc <- fread("/mctp/users/noshadh/data/tmp/KevinAnalysis/20210821probeLocations.txt")
+# Pp      <- fread("/mctp/users/noshadh/data/tmp/KevinAnalysis/20210821allChoTumorContent.txt")
+
+# segs    <- fread("/mnt/DATA5/tmp/kev/misc/20210821allChoSegRes.txt")
+# lrs     <- fread("/mnt/DATA5/tmp/kev/misc/20210821probeFile.txt")
+# probloc <- fread("/mnt/DATA5/tmp/kev/misc/20210821probeLocations.txt")
+# Pp      <- fread("/mnt/DATA5/tmp/kev/misc/20210821allChoTumorContent.txt")
+# Pp$sex  <- "female"
+
+mouseNormal <- c("MG_17X49", "MG_18X50", "MG_23X55", "MG_6X38",
+                 "MG_8X40","MG_11X43", "MG_13X45")
+
+
+segs    <- fread("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-138-MG_cho_20210621_354_343/segResults.txt")
+lrs     <- fread("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-138-MG_cho_20210621_354_343/mouseAmplicons.txt")
+probloc <- fread("/mnt/DATA6/mouseData/copynumber/Auto_user_AUS5-138-MG_cho_20210621_354_343/mouseProbeLoc.txt")
+Pp      <- fread("/mnt/DATA5/tmp/kev/misc/20210718hgscTcDf.txt")
+Pp$sex  <- "female"
+
+mouseNormal <- nameStripper(mouseNormal)
+Pp <- Pp[-which(duplicated(Pp$sample)),]
+Pp <- Pp[-which(Pp$sample %in% mouseNormal),]
+
+lrs <- lrs[, -which(colnames(lrs) %in% extraCols), with = FALSE]
+lrs[,2:ncol(lrs)] <- log2(lrs[,2:ncol(lrs)])
+colnames(lrs)[2:ncol(lrs)] <- nameStripper(colnames(lrs)[2:ncol(lrs)])
+namesInter <- intersect(colnames(lrs)[2:ncol(lrs)], Pp$sample)
+Pp <- Pp[match(Pp$sample, namesInter), ]
+if (any(is.na(Pp$sample))) {
+  Pp <- Pp[-which(is.na(Pp$sample)), ]
+}
+lrs <- lrs[, c(1, match(namesInter, colnames(lrs))), with = FALSE]
+segs$ID <- nameStripper(segs$ID)
+segs <- segs[-which(segs$ID %in% mouseNormal),]
+
+
+
+segs$seg.mean[segs$seg.mean > log2(4)] <- 0
+segs$seg.mean[segs$seg.mean < log2(4/3) & segs$seg.mean > log2(3/4)] <- 0
+
+## melt lr to make format consistent
+lrs <- melt.data.table(lrs, id.vars = "AmpliconId")
+
+## add prob loc to lrs
+probloc <- probloc[, AmpliconId := sprintf("AMP_%d", AmpliconId)]
+lrs     <- merge.data.table(lrs, probloc, by = "AmpliconId", all.x = TRUE)
+
+
+## sort locations
+lrs <- lrs[order(nchar(lrs$ChromNum), lrs$ChromNum)]
+probloc <- lrs[order(nchar(probloc$ChromNum), probloc$ChromNum)]
+
+## convert sex chromosome to X
+segs[, chrom := sprintf("chr%s", chrom)]
+segs[chrom == "chr23", chrom := "chrX"]
+
+probloc[, ChromNum := sprintf("chr%s", ChromNum)]
+probloc[ChromNum == "chr23", ChromNum := "chrX"]
+
+lrs[ , ChromNum := sprintf("chr%s", ChromNum)]
+lrs[ChromNum == "chr23", ChromNum := "chrX"]
+
+## making CNVEX format CNV object and then run the analysis
+samples <- unique(Pp$sample)
+registerDoParallel(5)
+i <- 1
+res <- foreach(i = 1:length(samples)) %dopar% {
+   lr     <- lrs[variable == samples[i], ]
+   seg    <- segs[ID == samples[i]]
+   purity <- Pp[sample == samples[i], tc]
+   sex    <- Pp$sex[i]
+   ## make tiled genome object
+   cnv      <- list()
+   cnv$var  <- GRanges()
+   cnv$tile <- GenomicRanges::GRanges(seqnames = lr$ChromNum, ranges = IRanges(start = lr$Start, end = lr$End),  AmpliconID = lr$AmpliconId, lr = lr$value)
+   seg      <- GenomicRanges::GRanges(seqnames = seg$chrom,   ranges = IRanges(start = seg$loc.start, end = seg$loc.end),  AmpliconID = seg$ID, 
+                                  lr.mean = seg$seg.mean, nlr = seg$num.mark)
+   seqinfo(seg) <- gobj$seqi
+   ## model cnv
+   mcnv             <- cnv
+   mcnv$tile$arm    <- seqnames(cnv$tile)
+   mcnv$tile$target <- TRUE
+   mcnv$tile$hq     <- TRUE
+   mcnv$tile$gap    <- 0
+   mcnv$stats <- .modelStats(mcnv$tile, mcnv$var)
+   ## normal copy number
+   if( sex == "male") {
+      mcnv$tile$nC  <- ifelse(seqnames(mcnv$tile) %in% "chrX", 1, 2)
+   } else {
+      mcnv$tile$nC  <- 2
+   }
+   mcnv$tile$baf       <- NA_real_
+   mcnv$tile$baf.depth <- NA_real_
+   mcnv$tile$baf.n     <- NA_real_
+   
+   data <- .opt.data(mcnv, seg, opts)
+   opt <- .opt.models(data, seg, opts, purity)
+   # this is where the final likelihoods are so after sort, append to df
+   opt <- opt[order(-L)]
+   opt$Lrank <- 1:nrow(opt)
+   res <- lapply(1:nrow(opt), function(j) {
+      purity <- opt$p0[j]
+      ploidy <- opt$P0[j]
+      LRank  <- str_pad(opt$Lrank[j], 2, pad = 0)
+      w.fn   <- sprintf("/mnt/DATA5/tmp/kev/testNoshad/")
+      id     <- samples[i]
+      plotForPloidy(purity, ploidy, mcnv, seg, w.fn, id, LRank)
+   })
+}
+
+
+
+samples <- unique(Pp$sample)
+registerDoParallel(5)
+res <- foreach(i = 1:length(samples), .combine = rbind) %dopar% {
+   lr     <- lrs[variable == samples[i], ]
+   seg    <- segs[ID == samples[i]]
+   purity <- Pp[sample == samples[i], tc]
+   sex    <- Pp$sex[i]
+   ## make tiled genome object
+   cnv      <- list()
+   cnv$var  <- GRanges()
+   cnv$tile <- GenomicRanges::GRanges(seqnames = lr$ChromNum, ranges = IRanges(start = lr$Start, end = lr$End),  AmpliconID = lr$AmpliconId, lr = lr$value)
+   seg      <- GenomicRanges::GRanges(seqnames = seg$chrom,   ranges = IRanges(start = seg$loc.start, end = seg$loc.end),  AmpliconID = seg$ID, 
+                                  lr.mean = seg$seg.mean, nlr = seg$num.mark)
+   seqinfo(seg) <- gobj$seqi
+   ## model cnv
+   mcnv             <- cnv
+   mcnv$tile$arm    <- seqnames(cnv$tile)
+   mcnv$tile$target <- TRUE
+   mcnv$tile$hq     <- TRUE
+   mcnv$tile$gap    <- 0
+   mcnv$stats <- .modelStats(mcnv$tile, mcnv$var)
+   ## normal copy number
+   if( sex == "male") {
+      mcnv$tile$nC  <- ifelse(seqnames(mcnv$tile) %in% "chrX", 1, 2)
+   } else {
+      mcnv$tile$nC  <- 2
+   }
+   mcnv$tile$baf       <- NA_real_
+   mcnv$tile$baf.depth <- NA_real_
+   mcnv$tile$baf.n     <- NA_real_
+   
+   data <- .opt.data(mcnv, seg, opts)
+   opt <- .opt.models(data, seg, opts, purity)
+   # this is where the final likelihoods are so after sort, append to df
+   opt <- opt[order(-L)]
+   opt$Lrank <- 1:nrow(opt)
+   
+   lapply(1:nrow(opt), function(j) {
+      purity <- opt$p0[j]
+      ploidy <- opt$P0[j]
+      LRank  <- str_pad(opt$Lrank[j], 2, pad = 0)
+      w.fn   <- sprintf("/mnt/DATA5/tmp/kev/testNoshad/")
+      id     <- samples[i]
+      plotForPloidy(purity, ploidy, mcnv, seg, w.fn, id, LRank)
+   })
+   
+   tmpOpt <- cbind("Sample" = rep(samples[i], nrow(opt)), opt)
+   return(tmpOpt)
+}
+
+
+
+plotForPloidy <- function(p, P, mcnv, seg, w.fn, id, LRank) {
+   # Clr <- .baseLogRatioVars(p, P, c(0,8), Msel=0, Csel=1)$Clr ## mapping lr to absolute CN
+   f  <- modelFit(mcnv, seg, p, P, opts)
+   pd <- plotDataKevin(mcnv$tile, mcnv$var, seg, f, gobj ,opts)
+   plt  <- plotLogRatio(pd, p, P, sel.data = "segment", sel.col = "segment")+ggtitle(sprintf("purity = %0.2f- ploidy = %0.2f", p, P))
+   fldr  <-  sprintf("%s%s", w.fn, id)
+   if (!file.exists(fldr)) {
+      system(sprintf("mkdir %s", fldr))
+   }
+   ggsave(sprintf("%s/%s-%0.2f-%0.2f.png", fldr, LRank, p, P),plot = plt, device = "png", width = 500 ,height = 400, units = "mm")
+}
+
+```
+
+## modified functions
+```{r}
+
+.opt.models <- function(data, seg, opts, purity) {
+   purity <- round(purity, 2)
+   opts$opt.p.lo       <- 0.5
+   opts$opt.p.hi       <- 0.99
+   opts$opt.grid.p.res <- 0.01
+   grid <- .opt.grid(data, opts)
+   grid$p0 <- round(grid$p0, 2)
+   grid <- grid[p0 == purity]
+   fine <- .opt.fine(data, grid, opts)
+   # fine <- fine[p0 == purity]
+   
+   return(fine)
+}
+
+plotDataKevin <- function(tile, var, seg, fit, gobj, opts) {
+    snp <- var
+    all.chr <- seqlevels(gobj$seqi)
+    tmp <- cumsum(as.numeric(seqlengths(seqinfo(seg))))
+    off <- c(0, head(tmp, -1))
+    names(off) <- seqnames(seqinfo(seg))
+    chr.off <- data.table(chr=names(off), chr.start=off+1, chr.end=tmp, chr.col=rep(c("A","B"), length.out=length(tmp)))
+
+    cov.dt <- data.table(
+        chr=as.character(seqnames(tile)),
+        start=floor((start(tile)+end(tile))/2),
+        end=floor((start(tile)+end(tile))/2),
+        type="COV",
+        seg=GenomicRanges::findOverlaps(tile, seg, select = "first"),
+        as.data.table(mcols(tile))
+    )
+    cov.dt[,chr:=factor(chr, all.chr, ordered=TRUE)]
+    cov.dt[,":="(
+        start.off=start+off[chr],
+        end.off=end+off[chr]
+    )]
+    
+    if (length(snp)>0) {
+        snp.dt <- data.table(
+            chr=as.character(seqnames(snp)),
+            start=start(snp),
+            end=start(snp),
+            type="BAF",
+            idx=(1:length(var)),
+            tile=findOverlaps(snp, tile, maxgap=opts$tile.shoulder-1, select="first"),
+            seg=findOverlaps(snp, seg, maxgap=opts$tile.shoulder-1, select = "first"),
+            as.data.table(mcols(snp)[,!(colnames(mcols(snp)) %in% c("REF", "ALT"))])
+        )
+    } else {
+        snp.dt <- data.table(
+            chr=character(0),
+            start=integer(0),
+            end=integer(0),
+            type=character(0),
+            idx=integer(0),
+            tile=integer(0),
+            seg=integer(0),
+            t.AF=numeric(0)
+        )
+    }
+    snp.dt[,chr:=factor(chr, all.chr, ordered=TRUE)]
+    snp.dt[,":="(
+        start.off=start+off[chr],
+        end.off=end+off[chr]
+    )]
+
+    if (is.null(fit)) {
+        fit <- data.table(
+            seg=1:length(seg),
+            C=NA_integer_,
+            K=NA_integer_,
+            lr=NA_real_,
+            tL=NA_real_,
+            aL=NA_real_,
+            d=NA_real_,
+            anom=NA_real_,
+            mse=NA_real_,
+            nlr=NA_real_,
+            naf=NA_real_,
+            len=NA_real_,
+            sC=NA_real_
+        )
+    }
+    seg.dt <- data.table(
+        chr=as.character(seqnames(seg)),
+        start=start(seg),
+        end=end(seg),
+        type="SEG",
+        fit
+    )
+    seg.dt[,chr:=factor(chr, all.chr, ordered=TRUE)]
+    seg.dt[,":="(
+        start.off=start+off[chr],
+        end.off=end+off[chr]
+    )]
+    setkey(seg.dt, seg)
+    cov.dt$C <- seg.dt[J(cov.dt$seg)]$C
+    snp.dt$C <- seg.dt[J(snp.dt$seg)]$C
+    cov.dt$K <- seg.dt[J(cov.dt$seg)]$K
+    snp.dt$K <- seg.dt[J(snp.dt$seg)]$K
+    pd <- list(cov=cov.dt, snp=snp.dt, seg=seg.dt, off=chr.off)
+    return(pd)
+}
+
+plotLogRatioKevin <- function(pd, purity=NULL, ploidy=NULL, sel.chr=NULL, sel.data="tile", sel.col="segment", lr.range=c(-4,4), C.range=c(0, 8), max.point=1000) {
+    ## subsample points
+    cov <- cov[sample(nrow(cov))]
+    cov <- cov[,head(.SD,max.point),by=seg]
+    ## compute plot limits
+    ymin <- lr.range[1]
+    ymax <- lr.range[2]
+    if (is.null(purity) || is.null(ploidy)) {
+        Clr <- data.table(C=seq(lr.range[1], lr.range[2]), lr=seq(lr.range[1], lr.range[2]))       
+    } else {
+        vars <- .baseLogRatioVars(purity, ploidy, C.range)
+        Clr <- vars$Clr
+    }
+    ## base plot (no data)
+    plt <- .baseLogRatioPlot(off, Clr, ymin, ymax)
+    ## data is tile
+    if (sel.data=="tile") {
+        if (sel.col=="segment") {
+            plt <- plt +
+                geom_point(aes(x=start.off, y=lr, col=factor(seg %% 3)), cov[(target)], size=0.75, alpha=1) +
+                scale_color_manual(values=c("#6495ED", "#DD8080", "#CDE2B8"), guide=FALSE) +
+                geom_point(aes(x=start.off, y=lr), cov[(!target)], size=0.75, alpha=1)
+        } else if (sel.col=="sC") {
+            plt <- plt +
+                geom_point(aes(x=start.off, y=lr, col=sC), cov[(target)], size=0.75, alpha=1) +
+                scale_color_gradient2(low="blue", mid="black", high="red", midpoint=2, limits=c(0,6), oob = scales::squish) +
+                geom_point(aes(x=start.off, y=lr), cov[(!target)], size=0.75, alpha=1)
+        } else if (sel.col=="C") {
+            plt <- plt +
+                geom_point(aes(x=start.off, y=lr, color=as.character(C)), cov[(target)], size=0.75, alpha=1) +
+                scale_color_manual(values=STRING_COL, guide=FALSE) +
+                geom_point(aes(x=start.off, y=lr), cov[(!target)], size=0.75, alpha=1)
+        } else if (sel.col=="CK") {
+            cov[C>1 & K==0, C:=-1]
+            cov[,C:=as.character(C)]
+            plt <- plt +
+                geom_point(aes(x=start.off, y=lr, color=C), cov, size=0.75, alpha=1) +
+                scale_color_manual(values=STRING_COL, guide=FALSE)
+        } else {
+            plt <- plt + 
+                geom_point(aes_string(x="start.off", y="lr", col=sel.col), cov, size=0.75) +
+                scale_color_gradient(low="black", high="red", guide=FALSE)
+        }
+    }
+    ## data is segment
+    if (sel.data=="segment") {
+        if (sel.col=="segment") {
+            plt <- plt + 
+                geom_segment(aes(x=start.off, xend=end.off, y=lr, yend=lr, col=factor(seg %% 3)), seg, size=2) + 
+                scale_color_manual(values=c("#6495ED", "#DD8080", "#CDE2B8"), guide=FALSE)
+        } else {
+            plt <- plt +
+                geom_segment(aes_string(x="start.off", xend="end.off", y="lr", yend="lr", col=lr-Clr[C==2]$lr), seg, size=2) +
+                scale_color_gradient(low="black", high="red", guide=FALSE)
+        }
+    }
+    return(plt)    
+}
+
+
+
+nameStripper <- function(df){
+  df <- str_remove(df, "_MG_X.*")
+  df <- str_remove(str_remove(df, "^X"), "_X.*")
+  df <- tolower(str_remove_all(str_remove_all(str_remove(df, "X.*"), "_"), "\\."))
+  df  <- str_remove(df, "o")
+  df  <- str_replace_all(df, " ", "")
+  return(df)
+}
+
+```
+
+CNVEX functions:
+```{r}
+## pP grid generation
+.lr.grid.pP <- function(grid.p.res, p.lo, p.hi, P.lo, P.hi) {
+    p <- seq(p.lo, p.hi, grid.p.res)
+    P <- seq(P.lo, P.hi, length.out=length(p))
+    pP <- as.matrix(expand.grid(p=p, P=P))
+    return(pP)
+}
+
+## lr data grid generation
+.lr.grid.lrC <- function(lr, sd.lr, max.C) {
+    ## only keep tiles with coverage for llik calculations
+    lr <- lr[!is.na(lr)]
+    ## The 2 makes sure that we generate sufficiently high C's for haploid
+    ## chromosomes with nC==1
+    lrC <- expand.grid(lr=lr$lr, C=0:(max.C * 2))
+    lrC$seg <- lr$seg
+    lrC$sd <- sd.lr
+    lrC$nC <- lr$nC
+    setDT(lrC)
+    ## if nc==1 keep all C's (doubled)
+    lrC <- lrC[nC==1 | C<=max.C]
+    setkey(lrC, C, seg)
+    return(lrC[])
+}
+
+## lr likelihood function
+.llik.lrC.inner <- function(lrC, p, P, p.lr.anom) {
+    lrC[,":="(
+        ## normal distribution to model clonal variants
+        norm = dnorm(lr, mean=log2((p * C + (1-p) * 2) / ((p * P) + (1-p) * 2)),
+                      sd=sd, log=TRUE),
+        ## uniform distribution to model anomalies
+        unif = dunif(0, min=-6, max=6, log=TRUE)
+    )]
+    lrC[,":="(
+        llik=plog_sum_exp(norm + log(1-p.lr.anom), unif + log(p.lr.anom))
+    )]
+    x <- lrC[,.( ## sum by C and seg
+        p=p, P=P,
+        lr = mean(lr),
+        llik = sum(llik),
+        nC = nC[1]
+    ), by=.(C, seg)]
+    return(x)
+}
+
+.llik.lrC.outer <- function(lrC, p, P, max.sC, p.lr.anom, collapse) {
+    ## compute likelihood for each segment and each C
+    x <- .llik.lrC.inner(lrC, p, P, p.lr.anom)
+    ## ML sub-clonal copy-number
+    raw.sC <- x[,(2^(lr) * ((p * P) + (1-p) * 2) - ((1-p) * 2)) / p]
+    x[,sC:=pmax(pmin(raw.sC, max.sC / (nC/2)), 0)]
+    ## sub-clonal deviation
+    x[,d:=abs(C - sC) * nC/2]
+    ## homozygous
+    x[,h:=(C==0)]
+    ## negative copy-number
+    x[,n:=(raw.sC < 0)]
+    ## for each segment pick C with highest llik
+    if (collapse) {
+        x <- x[order(-llik, ifelse(lr>0, -C, C)),.SD[1],by=seg]
+    }
+    setkey(x, seg)
+    return(x[])
+}
+
+
+.af.grid.MC <- function(p, P, max.C) {
+    ## M - number of chromosome with variant
+    ## C - total number of chromosomes
+    ## Ef - expected frequency of variant
+    MC <- as.data.table(expand.grid(M=0:max.C,C=0:max.C))[M<=C]
+    MC[,":="(
+        K=pmin(M,C-M),
+        Ef=(p * M + 1 * (1-p)) / (p * C + 2 * (1-p)),
+        prior.M=ifelse(M==C-M, log(1), log(1/2))
+    )]
+    return(MC[])
+}
+
+.llik.afC.inner <- function(af, MC, p.af.anom, dp.af.max) {
+    ## af data grid generation
+    tmp1 <- rbindlist(rep(list(af), nrow(MC)))[order(idx)]
+    tmp2 <- rbindlist(rep(list(MC), nrow(af)))
+    afC <- cbind(tmp1, tmp2)
+    afC[,":="(
+            beta=dbeta(
+                Ef,
+                shape1=   AF  * pmin(DP, dp.af.max) + 1,
+                shape2=(1-AF) * pmin(DP, dp.af.max) + 1,
+                log=TRUE
+            ),
+            unif=1 # dbeta(x, 1, 1) or dunif(x, 0, 1)
+    )]
+    bllik <- afC[,beta + prior.M + log(1-p.af.anom)]
+    ullik <- afC[,unif + prior.M + log(p.af.anom)]
+    afC[,":="(
+        llik=plog_sum_exp(bllik, ullik),
+        anom=bllik < ullik,
+        se=(Ef-AF)**2
+    )]
+    ## pick best M per K C
+    x <- afC[order(-llik),.SD[1],.(idx, K, C)]
+    ## total/average by K C
+    x <- x[,.(
+        llik=sum(llik),
+        anom=mean(anom),
+        mse=mean(se),
+        naf=.N
+    ), .(seg, K, C)]
+    return(x[])
+}
+
+.llik.afC.outer <- function(af, p, P, max.C, p.af.anom, dp.af.max, collapse) {
+    ## get af
+    MC <- .af.grid.MC(p, P, max.C)
+    afs <- split(af, af$seg)
+    x <- rbindlist(lapply(afs, function(af) {
+        .llik.afC.inner(af, MC, p.af.anom, dp.af.max)
+    }))
+    if (collapse) {
+        x <- x[order(-llik),.SD[1],.(seg, C)]
+    }
+    return(x[])
+}
+
+CNVEX_EMPTY_GRID <- structure(list(p0 = 0.99, P0 = 1.98, hP = NA_real_,
+                              hL = NA_real_, tL = NA_real_, cP = NA_real_, sP = NA_real_,
+                              aD = NA_real_, pH = NA_real_, pN = NA_real_, nlr = NA_integer_), row.names = c(NA, 1L),
+                              class = c("data.table", "data.frame"))
+CNVEX_EMPTY_FINE <- structure(list(p0 = 0.99, P0 = 1.98, hP = NA_real_,
+                              hL = NA_real_, tL = NA_real_, cP = NA_real_, sP = NA_real_,
+                              aD = NA_real_, pH = NA_real_, pN = NA_real_, nlr = NA_integer_,
+                              aL = NA_real_, pA = NA_real_, mse = NA_real_, naf = NA_integer_,
+                              L = NA_real_, cand = NA_integer_, iter = 1), row.names = c(NA, 1L),
+                              class = c("data.table", "data.frame"))
+
+.grid.localmax <- function(grid, res, x, y, var) {
+    mx <- as.matrix(dcast.data.table(grid, reformulate(x, response=y), value.var=var)[,-1])
+    r <- raster(mx)
+    ## nearest odd integer >= to 3
+    rres <- max(2*floor((nrow(r)*res)/2)+1, 3)
+    cres <- max(2*floor((ncol(r)*res)/2)+1, 3)
+    wind <- matrix(1, nrow=rres, ncol=cres)
+    localmax <- focal(r, fun = max.na.rm, w = wind, pad=TRUE, padValue=NA)
+    cand <- grid[Which(localmax==r, cells=TRUE)]
+    return(cand)
+}
+
+.opt.llik <- function(lrC, af, seg, p, P, opts) {
+    ## LR llik
+    lrl.pick <- .llik.lrC.outer(lrC, p, P, opts$opt.max.sC, opts$opt.p.lr.anom, TRUE)[seg]
+    setkey(lrl.pick, seg, C)
+    tmp <- lrl.pick
+    y1 <- tmp[(len / nlr < opts$opt.max.len.per.probe),.(
+        p0 = ..p, P0 = ..P,
+        hP = weighted.mean(ifelse(sC * nC/2 < opts$opt.max.C + 0.5, C  * nC/2, sC * nC/2), len), ## heuristic ploidy
+        hL = sum((1 - ((2 * pmin(d, 0.5))**1.5)) * llik), ## heuristic likelihood
+        tL = sum(llik), ## total segment log-likelihood
+        cP = weighted.mean(C  * nC/2, len), ## clonal ploidy
+        sP = weighted.mean(sC * nC/2, len), ## sub-clonal ploidy
+        aD = weighted.mean(d, len), ## average sub-clonal deviation
+        pH = weighted.mean(h, len), ## proportion homozygous
+        pN = weighted.mean(n, len), ## proportion negative copy-number
+        nlr = sum(nlr) # total number of tiles
+    )]
+    ## AF llik
+    if (!is.null(af) && nrow(af) > 0) {
+        afl.pick <- .llik.afC.outer(af, p, P, opts$opt.max.C, opts$opt.p.af.anom, opts$opt.dp.af.max, TRUE)
+        setkey(afl.pick, seg, C)
+        tmp <- afl.pick[lrl.pick[,.(seg, C)], nomatch=0]
+        y2 <- tmp[,.(
+            aL = sum(llik), ## total af likelihood
+            pA = sum(anom*naf)/sum(naf), ## proportion anomalous
+            mse = weighted.mean(mse, naf), ## mean-squered error
+            naf = sum(naf) ## total number of SNPs
+        )]
+        y <- c(y1, y2)
+        r <- min((y$naf / y$nlr), 1)
+        y$L <- r * y$hL + 1 * y$aL
+    } else {
+        y <- y1
+        y$L <- y$hL
+    }
+    return(y)
+}
+
+.opt.llik.p <- function(lrC, af, seg, pi, Pi, opts) {
+    ## optimize p
+    p.lox <- max(pi-opts$opt.fine.p.off, opts$opt.p.lo)
+    p.hix <- min(pi+opts$opt.fine.p.off, opts$opt.p.hi)
+    pP <- cbind(p=seq(p.lox, p.hix, opts$opt.fine.p.res), P=Pi)
+    tmp <- rbindlist(lapply(seq_len(nrow(pP)), function(i) {
+        .opt.llik(lrC, af, seg, pP[[i,1]], pP[[i,2]], opts)
+    }))
+    opt.p <- tmp[order(-L), .SD[1]]
+    return(opt.p)
+}
+
+## hP (heuristic ploidy):
+## Ploidy (trimmed) if subclonal copy (sC) is above max.C,
+## C is not a good estimate of copy-number and we use sC
+## hL (heuristic log-likelihood):
+## down-weights sub-clonal fragments, this rewards models for which the majority
+## of segments are clonal (low d), because d is correlated with P, this also
+## rewards low ploidy models
+.opt.grid <- function(data, opts) {
+    ## grid over all p and P combinations
+    pP <- .lr.grid.pP(opts$opt.grid.p.res, opts$opt.p.lo, opts$opt.p.hi, opts$opt.P.lo, opts$opt.P.hi)
+    ## grid over all C's for each segment
+    lrC <- .lr.grid.lrC(data$lr, data$stats$sd.lr, opts$opt.max.C)
+    ## calculate likelihood
+    grid <- rbindlist(foreach(i=seq_len(nrow(pP))) %dopar% {
+        x <- .llik.lrC.outer(lrC, pP[[i,1]], pP[[i,2]], opts$opt.max.sC, opts$opt.p.lr.anom, TRUE)[data$seg]
+        ## pick segments with enough probe density
+        y <- x[(len / nlr < opts$opt.max.len.per.probe),.(
+                p0 = pP[[i,1]], P0 = pP[[i,2]],
+                hP = weighted.mean(ifelse(sC * nC/2 < opts$opt.max.C + 0.5, C  * nC/2, sC * nC/2), len), ## heuristic ploidy
+                hL = sum((1 - 2 * pmin(d, 0.5)) * llik), ## heuristic likelihood
+                tL = sum(llik), ## total segment log-likelihood
+                cP = weighted.mean(C  * nC/2, len), ## clonal ploidy
+                sP = weighted.mean(sC * nC/2, len), ## sub-clonal ploidy
+                aD = weighted.mean(d, len), ## average sub-clonal deviation
+                pH = weighted.mean(h, len), ## proportion homozygous
+                pN = weighted.mean(n, len), ## proportion negative copy-number
+                nlr = sum(nlr) ## total number of tiles
+                )]
+    })
+    return(grid)
+}
+
+.opt.fine <- function(data, grid, opts) {
+    cand <- .grid.localmax(grid, res=opts$opt.cand.res, x="p0", y="P0", var="hL")
+    lrC <- .lr.grid.lrC(data$lr, data$stats$sd.lr, opts$opt.max.C)
+    fine <- rbindlist(foreach(i=seq_len(nrow(cand))) %dopar% {
+        ## setup variables
+        iter <- 0
+        pi <- cand[i,p0]
+        Pi <- cand[i,P0]
+        cPi <- cand[i,cP]
+        trace <- .opt.llik(lrC, data$af, data$seg, pi, Pi, opts)
+        while(TRUE) {
+            iter <- iter + 1
+            opt.p <- .opt.llik.p(lrC, data$af, data$seg, pi, Pi, opts)
+            pj <- opt.p[,p0] # correct
+            Pj <- opt.p[,hP]
+            cPj <- opt.p[,cP]
+            trace <- rbind(trace, opt.p)
+            if (
+               (iter==opts$opt.cand.max.iter) ||
+               (cPi==cPj)
+            ) {
+                break
+            }
+            pi <- pj
+            Pi <- Pj
+            cPi <- cPj
+        }
+        trace[,":="(cand=i, iter=.I-1)]
+        return(trace)
+    })
+    return(fine)
+}
+
+.opt.models <- function(data, seg, nogrid, nofine, opts) {
+    if (!nogrid) {
+        grid <- .opt.grid(data, opts)
+    } else {
+        grid <- CNVEX_EMPTY_GRID
+    }
+    if (!nogrid && !nofine) {
+        fine <- .opt.fine(data, grid, opts)
+    } else {
+        fine <- CNVEX_EMPTY_FINE
+    }
+    models <- list(grid=grid, fine=fine)
+}
+
+.opt.fit <- function(data, p, P, opts) {
+    lrC <- .lr.grid.lrC(data$lr, data$stats$sd.lr, opts$opt.max.C)
+    lrl.pick <- .llik.lrC.outer(lrC, p, P, opts$opt.max.sC, opts$opt.p.lr.anom, TRUE)[data$seg]
+    setkey(lrl.pick, seg, C)
+    if (!is.null(data$af) && nrow(data$af) > 0) {
+        afl.pick <- .llik.afC.outer(data$af, p, P, opts$opt.max.C, opts$opt.p.af.anom, opts$opt.dp.af.max, TRUE)
+        setkey(afl.pick, seg, C)
+        tmp <- afl.pick[lrl.pick]
+        tmp[nC==1, ":="(K=0)]
+        fit <- tmp[,.(seg, C=round(C * nC/2), K, lr, tL=i.llik, aL=llik, d, anom, mse, nlr, naf, len, sC=sC * nC/2)]
+        fit <- .pruneLOH(fit)
+    } else {
+        fit <- lrl.pick[,.(seg, C=round(C * nC/2), K=NA_integer_, lr, tL=llik, aL=NA_real_, d, anom=NA_real_,
+                           mse=NA_real_, nlr, naf=NA_real_, len, sC=sC * nC/2)]
+    }
+    return(fit)
+}
+
+
+.opt.data <- function(mcnv, seg, opts) {
+    var.seg <- findOverlaps(mcnv$var, seg, select="first", maxgap=opts$tile.shoulder-1)
+    tile.seg <- findOverlaps(mcnv$tile, seg, select="first")
+    if (length(mcnv$var)>0) {
+        ## TODO: it is possible that this will return a 0-row table, fix.
+        af <- .af.opt.data(mcnv$var, var.seg)
+    } else {
+        af <- NULL
+    }
+    lr <- .lr.opt.data(mcnv$tile, tile.seg)
+    seg <- .seg.opt.data(seg, mcnv$tile, tile.seg)
+    data <- list(lr=lr, af=af, seg=seg, stats=mcnv$stats)
+    return(data)
+}
+
+.lr.opt.data <- function(tile, tile.seg) {
+    lrt <- data.table(
+        seg=tile.seg,
+        lr=tile$lr,
+        target=tile$target,
+        nC=tile$nC
+    )
+    return(lrt)
+}
+
+.af.opt.data <- function(var, var.seg) {
+    snpt <- data.table(
+        seg=var.seg,
+        idx=seq_len(length(var)),
+        as.data.table(mcols(var))
+    )
+    return(snpt)
+}
+
+.seg.opt.data <- function(seg, tile, tile.seg) {
+    tmp <- as.data.table(mcols(tile))
+    tmp$seg <- tile.seg
+    tmp$len <- width(tile)
+    seg.len <- width(seg)
+    segt <- tmp[,.(
+        len=seg.len[seg],
+        gap=weighted.mean(gap, len),
+        ntot=.N,
+        nlr=sum(!is.na(lr)),
+        nbaf=sum(baf.n)
+    ),by=seg]
+    setkey(segt, seg)
+    return(segt)
+}
+
+robustImport <- function(fn, seqi, ...) {
+    .robust.import(fn, seqi, ...)
+}
+
+#' @export
+getGobj <- function(genome, fasta, refs=TRUE) {
+    gobj <- .gobj(genome, fasta, refs)
+    return(gobj)
+}
+
+#' @export
+getOpts <- function(settings, opts=list()) {
+    .get.opts(settings, opts)
+}
+
+#' @export
+importFeat <- function(gtf, feat, gobj) {
+    ann <- .robust.import(gtf, gobj$seqi)
+    feat <- ann[ann$type==feat]
+    return(feat)
+}
+
+#' @export
+importVcf <- function(vcf, tidx, nidx, gobj, opts) {
+    func <- getVcfImporter(opts$caller)
+    var <- unlist(GRangesList(unname(lapply(names(vcf), function(name) {
+        fn <- vcf[[name]]
+        v <- func(fn, tidx, nidx, gobj, opts)
+        mcols(v)$SOURCE <- name
+        return(v)
+    }))))
+    return(var)
+}
+
+#' @export
+importBam <- function(capture, t.bam, n.bam, gobj, opts) {
+    if (!is.null(capture)) {
+        target.fun <- getTargetTiles
+    } else {
+        target.fun <- getGenomeTiles
+    }
+    tile <- target.fun(capture, gobj, opts)
+    
+    ## normalize by sequencing depth
+    if (!is.null(t.bam)) {
+        t.cov.raw <- .runMosdepthTile(t.bam, tile, gobj$fasta, opts$cores)
+    } else {
+        t.cov.raw <- NA_real_
+    }
+    if (!is.null(n.bam)) {
+        n.cov.raw <- .runMosdepthTile(n.bam, tile, gobj$fasta, opts$cores)
+    } else {
+        n.cov.raw <- NA_real_
+    }
+    mcols(tile) <- cbind(mcols(tile), cbind(t.cov.raw, n.cov.raw))
+    
+    ## define HQ tile
+    t.cov.raw <- tile$t.cov.raw
+    t.cov.raw[is.na(t.cov.raw)] <- 0
+    n.cov.raw <- tile$n.cov.raw
+    n.cov.raw[is.na(n.cov.raw)] <- 0
+    tile.totalcov <- (t.cov.raw + n.cov.raw) * width(tile)
+    tile$hq <- 
+        tile$gap <  opts$tile.hq.max.gap &
+        tile$unmasked >  opts$tile.hq.min.unmasked &
+        tile$blacklist <  opts$tile.hq.max.blacklist &
+        tile$giab.difficults < opts$tile.hq.max.giab.difficults & ## TODO: this threshold needs tuning
+        tile.totalcov > opts$tile.hq.min.totalcov
+    
+    return(tile)
+}
+
+#' @export
+createCnv <- function(vcf, capture, t.bam, n.bam, gobj, opts) {
+    if (!is.null(t.bam) && !is.null(n.bam)) {
+        tidx=1
+        nidx=2
+    } else if (!is.null(t.bam) && is.null(n.bam)) {
+        tidx=1
+        nidx=NULL
+    } else if (is.null(t.bam) && !is.null(n.bam)) {
+        tidx=NULL
+        nidx=1
+    }
+    var <- importVcf(vcf, tidx, nidx, gobj, opts)
+    tile <- importBam(capture, t.bam, n.bam, gobj, opts)
+    cnv <- list(tile=tile, var=var)
+    return(cnv)
+}
+
+#' @export
+addPassVariant <- function(cnv, opts) {
+    if ("t.GT" %in% names(mcols(cnv$var))) {
+        cnv$var$t.PASS <- passTumor(cnv$tile, cnv$var, opts)
+    }
+    if ("n.GT" %in% names(mcols(cnv$var))) {
+        cnv$var$n.PASS <- passNormal(cnv$tile, cnv$var, opts)
+    }
+    return(cnv)
+}
+
+#' @export
+addSex <- function(cnv, gobj, opts) {
+    if (is.null(opts$sex)) {
+        cnv$sex <- .detect.sex(cnv$var, cnv$tile, gobj, opts)
+    } else {
+        cnv$sex <- opts$sex
+    }
+    cnv$tile$nC <- .get.sexcopy(cnv$sex, cnv$tile, gobj)
+    return(cnv)
+}
+
+#' @export
+addNormCoverage <- function(cnv, opts) {
+    t.cov.raw <- cnv$tile$t.cov.raw
+    t.cov <- .normCoverage(t.cov.raw, cnv$tile, opts)
+    n.cov.raw <- cnv$tile$n.cov.raw
+    if (!is.null(n.cov.raw)) {
+        n.cov <- .normCoverage(n.cov.raw, cnv$tile, opts)
+    } else {
+        n.cov <- NA_real_
+    }
+    mcols(cnv$tile) <- cbind(mcols(cnv$tile), cbind(t.cov, n.cov))
+    return(cnv)
+}
+
+#' @export
+addLogRatio <- function(cnv, pool, opts) {
+    nas <- rep(NA_real_, length(cnv$tile))
+    cnv$tile$t.lr <- nas
+    cnv$tile$n.lr <- nas
+    cnv$tile$tn.lr <- nas
+    cnv$tile$tp.lr <- nas
+    cnv$tile$np.lr <- nas
+    if (!all(is.na(cnv$tile$t.cov))) {
+        cnv$tile$t.lr <- .polishLogRatio(.rawLogRatio(cnv$tile$t.cov, 1, opts), cnv$tile, opts)
+    }
+    if (!all(is.na(cnv$tile$n.cov))) {
+        cnv$tile$n.lr <- .polishLogRatio(.rawLogRatio(cnv$tile$n.cov, 1, opts), cnv$tile, opts)
+    }
+    if (!all(is.na(cnv$tile$t.cov)) && !all(is.na(cnv$tile$n.cov))) {
+        cnv$tile$tn.lr <- .polishLogRatio(.rawLogRatio(cnv$tile$t.cov, cnv$tile$n.cov, opts), cnv$tile, opts)
+    }
+    if (!all(is.na(cnv$tile$t.cov)) && !is.null(pool)) {
+        if (!all(is.na(cnv$tile$n.cov))) {
+            n.cov <- cnv$tile$n.cov
+        } else {
+            n.cov <- nas
+        }
+        cnv$tile$tp.lr <- .polishLogRatio(.poolLogRatio(cnv$tile$t.cov, n.cov, cnv$sex, pool, opts), cnv$tile, opts)
+    }
+    if (!all(is.na(cnv$tile$n.cov)) && !is.null(pool)) {
+        cnv$tile$np.lr <- .polishLogRatio(.poolLogRatio(cnv$tile$n.cov, nas, cnv$sex, pool, opts), cnv$tile, opts)
+    }
+    return(cnv)
+}
+
+#' @export
+modelCnv <- function(sample, cnv, pool, gobj, opts) {
+    mcnv <- .modelCnv(sample, cnv, pool, gobj, opts)
+    return(mcnv)
+}
+
+#' @export
+modelSeg <- function(mcnv, pool, opts) {
+    seg <- jointSegment(mcnv$tile, opts)
+    seg <- pruneSegments(seg, mcnv$tile, mcnv$stats, opts)
+    return(seg)
+}
+
+#' @export
+modelOpt <- function(mcnv, seg, nogrid, nofine, opts) {
+    data <- .opt.data(mcnv, seg, opts)
+    opt <- .opt.models(data, seg, nogrid, nofine, opts)
+    return(opt)
+}
+
+#' @export
+modelFit <- function(mcnv, seg, purity, ploidy, opts) {
+    data <- .opt.data(mcnv, seg, opts)
+    fit <- .opt.fit(data, purity, ploidy, opts)
+    return(fit)
+}
+
+#' @export
+modelPick <- function(mod, pick) {
+    write("Automated model-picking not yet implemented.\n", stderr())
+    quit("no", 1)
+}
+
+#' @export
+modelDigest <- function(mcnv, seg, fit, purity, ploidy, opts, log) {
+    ## merge data
+    mcnv$purity <- purity
+    mcnv$ploidy <- ploidy
+    mcnv$seg <- seg
+    mcnv$fit <- fit
+    mcnv$opts <- opts
+    mcnv$log <- log
+    ## add segment
+    mcnv$var$seg <- findOverlaps(mcnv$var, seg, maxgap=opts$tile.shoulder-1, select="first")
+    mcnv$tile$seg <- findOverlaps(mcnv$tile, seg, select="first")
+    ## add fit tile
+    mcnv$tile$sC <- fit[mcnv$tile$seg]$sC
+    mcnv$tile$C <- fit[mcnv$tile$seg]$C
+    mcnv$tile$K <- fit[mcnv$tile$seg]$K
+    mcnv$tile$seg.lr <- fit[mcnv$tile$seg]$lr
+    mcnv$tile$seg.len <- fit[mcnv$tile$seg]$len
+    mcnv$tile$seg.nlr <- fit[mcnv$tile$seg]$nlr
+    mcnv$tile$seg.naf <- fit[mcnv$tile$seg]$naf
+    ## add fit var
+    mcnv$var$sC <- fit[mcnv$var$seg]$sC
+    mcnv$var$C <- fit[mcnv$var$seg]$C
+    mcnv$var$K <- fit[mcnv$var$seg]$K
+    mcnv$var$seg.lr <- fit[mcnv$var$seg]$lr
+    mcnv$var$seg.len <- fit[mcnv$var$seg]$len
+    mcnv$var$seg.nlr <- fit[mcnv$var$seg]$nlr
+    mcnv$var$seg.naf <- fit[mcnv$var$seg]$naf
+    return(mcnv)
+}
+
+#' @export
+createPoolData <- function(cnv.fns, gobj, opts) {
+    pd <- .importPoolData(cnv.fns, gobj, opts)
+    return(pd)
+}
+
+#' @export
+createPool <- function(pd, opts) {
+    pool <- .createPool(pd, opts)
+    return(pool)
+}
+
+.modelCnv <- function(sample, cnv, pool, gobj, opts) {
+    sel <- .sample.switch(sample, opts)
+    tile <- cnv$tile[,c("arm", "target", "unmasked", "hq", "gap", "nC")]
+    tile$lr <- mcols(cnv$tile)[,sel$lr]
+    if (!is.null(pool)) {
+        if (cnv$sex=="male") {
+            tile$nvar = pool$male$nvar
+        } else {
+            tile$nvar = pool$female$nvar
+        }
+    }
+    if (length(cnv$var)>0) {
+        col.sel <- c("SOURCE", "QUAL")
+        var <- cnv$var[,col.sel]
+        var$AF <- mcols(cnv$var)[,sel$af]
+        var$DP <- mcols(cnv$var)[,sel$dp]
+        var <- var[mcols(cnv$var)[,sel$pass]]
+    } else {
+        var <- cnv$var
+        var$SOURCE <- character(0)
+        var$QUAL <- integer(0)
+        var$AF <- numeric(0)
+        var$DP <- integer(0)
+    }
+    tile <- .add.baf(tile, var, opts)
+    stats <- .modelStats(tile, var)
+    cnv <- list(sample=sample, tile=tile, var=var, stats=stats, sex=cnv$sex)
+    return(cnv)
+}
+
+.add.baf <- function(tile, var, opts) {
+    hits <- .getHits(tile, var, opts)
+    if (length(hits)>0) {
+        bad=ifelse(var[queryHits(hits)]$AF < 0.5,
+                   round(   var[queryHits(hits)]$AF  * var[queryHits(hits)]$DP),
+                   round((1-var[queryHits(hits)]$AF) * var[queryHits(hits)]$DP))
+        tmp <- data.table(
+            idx=subjectHits(hits),
+            bad=bad,
+            depth=var[queryHits(hits)]$DP
+        )
+        setkey(tmp, idx)
+        tmp <- tmp[J(1:length(tile))]
+        tmp <- tmp[,.(
+            baf=sum(bad)/sum(depth),
+            depth=sum(depth),
+            n=length(na.omit(bad))
+        ), by=idx]
+        tile$baf <- .smoothOutliers(tmp$baf, tile, opts)
+        tile$baf.depth <- tmp$depth
+        tile$baf.n <- tmp$n
+    } else {
+        tile$baf <- NA_real_
+        tile$baf.depth <- NA_real_
+        tile$baf.n <- NA_real_
+    }
+    return(tile)
+}
+
+.modelStats <- function(tile, var) {
+    ## exclude low-quality regions
+    tile.hq <- tile[tile$hq]
+    hq.lr <- na.omit(tile.hq$lr)
+    if (length(hq.lr)>3) {
+        sd.lr <- estimateSd(hq.lr)
+    } else {
+        sd.lr <- 0
+    }
+    hq.baf <- na.omit(tile.hq$baf)
+    if (length(hq.baf)>3) {
+        sd.baf <- estimateSd(hq.baf)
+    } else {
+        sd.baf <- 0
+    }
+    stats <- list(sd.lr=sd.lr, sd.baf=sd.baf)
+    return(stats)
+}
+
+.sample.switch <- function(sample, opts) {
+    if (sample=="tumor") {
+        af <- "t.AF"
+        dp <- "t.DP"
+        pass <- "t.PASS"
+        if (opts$lr.tumor=="pool") {
+            lr <- "tp.lr"
+        } else if (opts$lr.tumor=="pair") {
+            lr <- "tn.lr"
+        } else {
+            lr <- "t.lr"
+        }
+    } else if (sample=="normal") {
+        af <- "n.AF"
+        dp <- "n.DP"
+        pass <- "n.PASS"
+        if (opts$lr.normal=="pool") {
+            lr <- "np.lr"
+        } else {
+            lr <- "n.lr"
+        }
+    }
+    out <- list(sample=sample, af=af, dp=dp, pass=pass, lr=lr)
+    return(out)
+}
+
+
+STRING_COL <- c(
+    "green", "#4500ACFF", "#6B58EEFF", "black", "#FC9272", "#FB6A4A", "#EF3B2C", "#CB181D", "#A50F15",
+    "#67000D", "#67000D", "#67000D", "#67000D", "#67000D", "#67000D", "#67000D", "#67000D", "#67000D",
+    "#67000D", "#67000D", "#67000D", "#67000D", "#67000D", "#67000D", "#67000D", "#67000D", "#67000D"
+)
+names(STRING_COL) <- as.character(-1:(length(STRING_COL)-2))
+
+#'@export
+seg_goi_format <- function(seg,goi=NULL,v4=NULL){
+  if(length(goi)>0){
+    seg$notable_genes <- sapply(seg$gene_names, 
+                            function(x){
+                              foo <- unlist(x)
+                              g <- foo[foo %in% goi]
+                              if(length(g)==0){'None'}else{paste(g,collapse=',')}
+                            }
+                          )
+
+  }
+  seg$notable_genes <- as.character(seg$notable_genes)
+  seg$gene_names <- sapply(seg$gene_names,
+                      function(x){
+                        foo <- unlist(x)
+                        if(!is.null(v4)){
+                          foo <- foo[foo %in% v4]
+                        }
+                        if(length(foo)>5){
+                          paste0(c(foo[1:5],sprintf('(%d others)',length(foo)-5)),collapse=',')
+                        }else{
+                          paste0(foo,collapse=',')
+                        }
+                      }
+                    )
+  return(seg)
+}
+
+.pd.filter <- function(pd, cnv.filters, min.cov.cov, min.cov.snp) {
+    fcb <- "blacklisted" %in% cnv.filters & pd$cov$blacklist
+    fcm <- "cov-masked" %in% cnv.filters & pd$cov$unmasked < 0.75
+    fcg <- "gapped" %in% cnv.filters & pd$cov$gap > 0
+    fct <- "off-target" %in% cnv.filters & !pd$cov$target
+    if (all(is.na(pd$cov$n.cov.raw))) {
+        n.cov.raw <- Inf
+    } else {
+        n.cov.raw <- pd$cov$n.cov.raw
+    }    
+    fcc <- (pd$cov$t.cov.raw < min.cov.cov | n.cov.raw < min.cov.cov) & pd$cov$target
+    fsm <- "cov-masked" %in% cnv.filters & pd$snp$mask.strict
+    if (is.null(pd$snp$n.DP)) {
+        n.DP <- Inf
+    } else {
+        n.DP <- pd$snp$n.DP
+    }
+    fsc <- pd$snp$t.DP < min.cov.snp | n.DP < min.cov.snp    
+    filter <- list(
+        cov=!(fcb | fcm | fcg | fct | fcc),
+        snp=!(fsm | fsc)
+    )
+    filter <- list(cov=TRUE, snp=TRUE)
+    return(filter)
+}
+
+.baseLogRatioPlot <- function(off, Clr, ymin, ymax) {
+    plt <- ggplot(aes=aes(text="zztop")) + 
+        geom_rect(aes(xmin=chr.start, xmax=chr.end, ymin=-Inf, ymax=Inf, fill=chr.col), data=off) +
+        scale_fill_manual(values=c("white", "#EEEEEE"), guide=FALSE) +
+        geom_text(aes(x=(chr.start+chr.end)/2, y=ymax-(ymax-ymin)*ifelse(1:nrow(off) %% 2, 0.05, 0.12), label=chr), data = off) +
+        coord_cartesian(ylim=c(ymin,ymax)) +
+        geom_hline(aes(yintercept=lr), Clr, size=0.25) +
+        scale_y_continuous("log2(tumor/normal)", expand = c(0, 0), breaks=Clr$lr, labels=Clr$C) +
+        scale_x_continuous(expand = c(0, 0)) +
+        theme_pubr() +
+        theme(
+            panel.spacing = unit(0, "lines"),
+            axis.title.x=element_blank(),
+            axis.ticks.x = element_blank(),
+            axis.text.x = element_blank(),
+            axis.line.x = element_blank()
+        )
+    
+    return(plt)
+}
+
+.baseBafPlot <- function(off, MCbaf) {
+    plt <- ggplot() + 
+        geom_rect(aes(xmin=chr.start, xmax=chr.end, ymin=-Inf, ymax=Inf, fill=chr.col), off, alpha = 1) +
+        scale_fill_manual(values=c("white", "#EEEEEE"), guide=FALSE) +
+        geom_hline(aes(yintercept=  baf), MCbaf, size=0.25, color="red") +
+        scale_y_continuous("BAF", expand = c(0, 0), breaks=MCbaf$baf, labels=MCbaf$lab) +
+        scale_x_continuous(expand = c(0, 0)) +
+        theme_pubr() +
+        theme(
+            panel.spacing = unit(0, "lines"),
+            axis.title.x = element_blank(),
+            axis.ticks.x = element_blank(),
+            axis.text.x = element_blank(),
+            axis.line.x = element_blank()
+        )
+        return(plt)
+}
+
+.baseLogRatioVars <- function(purity, ploidy, range, Msel=0, Csel=1) {
+    p <- purity
+    D <- (ploidy * p) + 2 * (1-p)
+    C <- seq(range[1], range[2], by=1)
+    Clr <- data.table(C=factor(C), lr=log2((p * C + (1-p) * 2)  / D))
+    ymin <- log2((p * min(C) + (1-p) * 2) / D) - 0.25
+    ymax <- log2((p * max(C) + (1-p) * 2) / D) + 0.25
+    baf <- (p * Msel + 1 * (1-p)) / (p * Csel + 2 * (1-p))
+    MCbaf <- data.table(
+        baf=c(baf,1-baf),
+        lab=rep(paste(Msel,Csel,sep="/"), 2)
+    )
+    vars <- list(p=p, D=D, C=C, Clr=Clr, ymin=ymin, ymax=ymax, MCbaf=MCbaf)
+    return(vars)
+}
+
+.feat2gene <- function(feat, gene) {
+    tmp <- as.data.table(findOverlaps(feat, gene))
+    setkey(tmp, queryHits)
+    tmp <- cbind(tmp, as.data.table(mcols(gene[tmp$subjectHits])[,c("gene_id", "gene_name")]))
+    tmp <- tmp[,.(gene_ids=list(gene_id), gene_names=list(gene_name)), queryHits]
+    tmp <- tmp[J(seq_along(feat)), .(gene_ids, gene_names)]
+    return(tmp)
+}
+
+plotData <- function(tile, var, seg, fit, gene, gobj, opts) {
+    snp <- var
+    all.chr <- seqlevels(gobj$seqi)
+    tmp <- cumsum(as.numeric(seqlengths(seqinfo(seg))))
+    off <- c(0, head(tmp, -1))
+    names(off) <- seqnames(seqinfo(seg))
+    chr.off <- data.table(chr=names(off), chr.start=off+1, chr.end=tmp, chr.col=rep(c("A","B"), length.out=length(tmp)))
+
+    cov.dt <- data.table(
+        chr=as.character(seqnames(tile)),
+        start=floor((start(tile)+end(tile))/2),
+        end=floor((start(tile)+end(tile))/2),
+        type="COV",
+        seg=GenomicRanges::findOverlaps(tile, seg, select = "first"),
+        gene_names=.feat2gene(tile, gene)$gene_names,
+        as.data.table(mcols(tile))
+    )
+    cov.dt[,chr:=factor(chr, all.chr, ordered=TRUE)]
+    cov.dt[,":="(
+        start.off=start+off[chr],
+        end.off=end+off[chr]
+    )]
+    
+    if (length(snp)>0) {
+        snp.dt <- data.table(
+            chr=as.character(seqnames(snp)),
+            start=start(snp),
+            end=start(snp),
+            type="BAF",
+            idx=(1:length(var)),
+            tile=findOverlaps(snp, tile, maxgap=opts$tile.shoulder-1, select="first"),
+            seg=findOverlaps(snp, seg, maxgap=opts$tile.shoulder-1, select = "first"),
+            gene_names=.feat2gene(snp, gene)$gene_names,
+            as.data.table(mcols(snp)[,!(colnames(mcols(snp)) %in% c("REF", "ALT"))])
+        )
+    } else {
+        snp.dt <- data.table(
+            chr=character(0),
+            start=integer(0),
+            end=integer(0),
+            type=character(0),
+            idx=integer(0),
+            tile=integer(0),
+            seg=integer(0),
+            gene_names=character(0),
+            t.AF=numeric(0)
+        )
+    }
+    snp.dt[,chr:=factor(chr, all.chr, ordered=TRUE)]
+    snp.dt[,":="(
+        start.off=start+off[chr],
+        end.off=end+off[chr]
+    )]
+
+    if (is.null(fit)) {
+        fit <- data.table(
+            seg=1:length(seg),
+            C=NA_integer_,
+            K=NA_integer_,
+            lr=NA_real_,
+            tL=NA_real_,
+            aL=NA_real_,
+            d=NA_real_,
+            anom=NA_real_,
+            mse=NA_real_,
+            nlr=NA_real_,
+            naf=NA_real_,
+            len=NA_real_,
+            sC=NA_real_
+        )
+    }
+    seg.dt <- data.table(
+        chr=as.character(seqnames(seg)),
+        start=start(seg),
+        end=end(seg),
+        type="SEG",
+        gene_names=.feat2gene(seg, gene)$gene_names,
+        fit
+    )
+    seg.dt[,chr:=factor(chr, all.chr, ordered=TRUE)]
+    seg.dt[,":="(
+        start.off=start+off[chr],
+        end.off=end+off[chr]
+    )]
+    setkey(seg.dt, seg)
+    cov.dt$C <- seg.dt[J(cov.dt$seg)]$C
+    snp.dt$C <- seg.dt[J(snp.dt$seg)]$C
+    cov.dt$K <- seg.dt[J(cov.dt$seg)]$K
+    snp.dt$K <- seg.dt[J(snp.dt$seg)]$K
+    pd <- list(cov=cov.dt, snp=snp.dt, seg=seg.dt, off=chr.off)
+    return(pd)
+}
+
+plotLogRatio <- function(pd, purity=NULL, ploidy=NULL, sel.chr=NULL, sel.data="tile", sel.col="segment", lr.range=c(-4,4), C.range=c(0, 8), max.point=1000) {
+    ## select data from chromosomes
+    if (!is.null(sel.chr)) {
+        cov <- pd$cov[chr %in% sel.chr]
+        off <- pd$off[chr %in% sel.chr]
+        seg <- pd$seg[chr %in% sel.chr]
+    } else {
+        cov <- pd$cov
+        off <- pd$off
+        seg <- pd$seg
+    }
+    ## subsample points
+    cov <- cov[sample(nrow(cov))]
+    cov <- cov[,head(.SD,max.point),by=seg]
+    ## compute plot limits
+    ymin <- lr.range[1]
+    ymax <- lr.range[2]
+    if (is.null(purity) || is.null(ploidy)) {
+        Clr <- data.table(C=seq(lr.range[1], lr.range[2]), lr=seq(lr.range[1], lr.range[2]))       
+    } else {
+        vars <- .baseLogRatioVars(purity, ploidy, C.range)
+        Clr <- vars$Clr
+    }
+    ## base plot (no data)
+    plt <- .baseLogRatioPlot(off, Clr, ymin, ymax)
+    ## data is tile
+    if (sel.data=="tile") {
+        if (sel.col=="segment") {
+            plt <- plt +
+                geom_point(aes(x=start.off, y=lr, col=factor(seg %% 3)), cov[(target)], size=0.75, alpha=1) +
+                scale_color_manual(values=c("#6495ED", "#DD8080", "#CDE2B8"), guide=FALSE) +
+                geom_point(aes(x=start.off, y=lr), cov[(!target)], size=0.75, alpha=1)
+        } else if (sel.col=="sC") {
+            plt <- plt +
+                geom_point(aes(x=start.off, y=lr, col=sC), cov[(target)], size=0.75, alpha=1) +
+                scale_color_gradient2(low="blue", mid="black", high="red", midpoint=2, limits=c(0,6), oob = scales::squish) +
+                geom_point(aes(x=start.off, y=lr), cov[(!target)], size=0.75, alpha=1)
+        } else if (sel.col=="C") {
+            plt <- plt +
+                geom_point(aes(x=start.off, y=lr, color=as.character(C)), cov[(target)], size=0.75, alpha=1) +
+                scale_color_manual(values=STRING_COL, guide=FALSE) +
+                geom_point(aes(x=start.off, y=lr), cov[(!target)], size=0.75, alpha=1)
+        } else if (sel.col=="CK") {
+            cov[C>1 & K==0, C:=-1]
+            cov[,C:=as.character(C)]
+            plt <- plt +
+                geom_point(aes(x=start.off, y=lr, color=C, text=gene_names), cov, size=0.75, alpha=1) +
+                scale_color_manual(values=STRING_COL, guide=FALSE)
+        } else {
+            plt <- plt + 
+                geom_point(aes_string(x="start.off", y="lr", col=sel.col), cov, size=0.75) +
+                scale_color_gradient(low="black", high="red", guide=FALSE)
+        }
+    }
+    ## data is segment
+    if (sel.data=="segment") {
+        if (sel.col=="segment") {
+            plt <- plt + 
+                geom_segment(aes(x=start.off, xend=end.off, y=lr, yend=lr, col=factor(seg %% 3)), seg, size=2) + 
+                scale_color_manual(values=c("#6495ED", "#DD8080", "#CDE2B8"), guide=FALSE)
+        } else {
+            plt <- plt +
+                geom_segment(aes_string(x="start.off", xend="end.off", y="lr", yend="lr", col=lr-Clr[C==2]$lr), seg, size=2) +
+                scale_color_gradient(low="black", high="red", guide=FALSE)
+        }
+    }
+    return(plt)    
+}
+
+#'@export
+plotBaf <- function(pd, purity=NULL, ploidy=NULL, sel.col="segment", sel.chr=NULL, baf.range=c(0,1), C.range=c(0,8), Msel=0, Csel=1, max.point=250) {
+    if (!is.null(sel.chr)) {
+        snp <- pd$snp[chr %in% sel.chr]
+        off <- pd$off[chr %in% sel.chr]
+    } else {
+        snp <- pd$snp
+        off <- pd$off
+    }
+
+    #backwards compatible with old pre-germline data
+    if('t.AF' %in% colnames(snp)){
+      snp %>% dplyr::rename(AF=t.AF) -> snp
+    }
+      
+    ## subsample points
+    snp <- snp[sample(nrow(snp))]
+    snp <- snp[,head(.SD,max.point),by=seg]
+    ## compute plot grid lines
+    if (is.null(purity) || is.null(ploidy)) {
+        MCbaf <- data.table(baf=seq(baf.range[1], baf.range[2], 0.1), lab=seq(baf.range[1], baf.range[2], 0.1))
+    } else {
+        vars <- .baseLogRatioVars(purity, ploidy, C.range, Msel, Csel)
+        MCbaf <- vars$MCbaf
+    }    
+    plt <- .baseBafPlot(off, MCbaf)
+    if (sel.col=="segment") {
+        plt <- plt + 
+            geom_point(aes(x=start.off, y=AF, col=factor(seg %% 3)), snp, size=0.75, alpha=1) +
+            scale_color_manual(values=c("#6495ED", "#DD8080", "#CDE2B8"), guide=FALSE)
+    }
+    if (sel.col=="C") {
+        plt <- plt +
+            geom_point(aes(x=start.off, y=AF, col=as.character(C)), snp, size=0.75, alpha=1) +
+            scale_color_manual(values=STRING_COL, guide=FALSE)
+    }
+    if (sel.col=="CK") {
+        snp[C>1 & K==0, C:=-1]
+        snp[,C:=as.character(C)]
+        plt <- plt +
+            geom_point(aes(x=start.off, y=AF, col=C, text=gene_names), snp, size=0.75, alpha=1) +
+            scale_color_manual(values=STRING_COL, guide=FALSE)
+    }
+    return(plt)
+}
+
+#'@export
+plotGC <- function(pd) {
+    tmp <- pd$cov
+    if (!all(is.na(tmp$n.cov))) {
+        tmp[,lr.raw:=cnvex:::.rawLogRatio(tmp$t.cov, tmp$n.cov)]
+        tmp[,lr:=tmp$tn.lr]
+    } else {
+        tmp[,lr.raw:=cnvex:::.rawLogRatio(tmp$t.cov, 1)]
+        tmp[,lr:=tmp$t.lr]
+    }
+    
+    tmp <- melt(tmp[,.(gc, blacklist, target, lr.raw, lr, lr.off=lr.raw-lr)], id.vars=c("gc", "blacklist", "target"))
+    tmp[,delta:=FALSE]
+    tmp[variable=="lr.off", delta:=TRUE]
+    tmp[variable=="lr.off", variable:="lr.raw"]
+    tmp[,target.lab:=ifelse(target, "on-target", "off-target")]
+    tmp[,lr.lab:=ifelse(variable=="lr.raw", "raw", "adjusted")]
+    gc.plt <- ggplot(tmp) + aes(x=gc, y=value, color=delta) +
+        facet_grid(lr.lab~target.lab) +
+        geom_point(alpha=0.05, size=0.1) +
+        scale_color_manual(values=c("black", "red"), guide=FALSE) +
+        coord_cartesian(xlim=c(0.25, 0.75), ylim=c(-3, 3)) +
+        ylab("log2(tumor/normal)") +
+        xlab("GC [%]") +
+        theme_pubr() +
+        scale_x_continuous(labels=scales::percent_format(accuracy = 1))+geom_smooth(color = "blue",size = 1)
+    
+    return(gc.plt)
+}
+
+plotGrid <- function(grid, cand, opts, var="hL", better="higher") {
+    grid$X <- grid[[var]]
+    cand$X <- cand[[var]]
+    if (better=="higher") {
+        midp <- min(cand$X)
+        delta <- (max(cand$X) - midp)
+        lowp <- midp - delta
+        grid[X<lowp, X:=lowp]
+        labelcol <- "blue"
+    } else if (better=="lower") {
+        midp <- max(cand$X)
+        delta <- (midp-min(cand$X))
+        lowp <- midp + delta
+        grid[X>lowp, X:=lowp]
+        labelcol <- "red"
+    }
+    plt <- ggplot(grid) +
+        aes(x=p0, y=P0, fill=X) +
+        geom_tile() +
+        scale_x_continuous(breaks=seq(0, 1, 0.1)) +
+        scale_y_continuous(breaks=seq(opts$opt.P.lo, opts$opt.P.hi, 1)) +
+        scale_fill_gradient2(low="blue", mid="white", high="red", name=var, midpoint=midp) +
+        geom_point(data=cand, size=2) +
+        xlab("purity") + 
+        ylab("ploidy") +
+        theme_pubr(legend="right")
+    return(plt)
+}
+
+#'@export
+plotNvar <- function(pool, opts) {
+    ## sex sepecific nvar
+    nvar.f <- pool$female$nvar
+    nvar.m <- pool$male$nvar
+    
+    plt.f.ont <- ggplot() +
+        geom_histogram(aes(x = nvar.f[pool$target]), binwidth = 0.00025) +
+        coord_cartesian(xlim = c(0,0.1)) +
+        scale_x_continuous(breaks=seq(0, 1, 0.01)) +
+        theme_linedraw() +
+        theme(text = element_text(size=7.5)) +
+        xlab("Variance") +
+        ggtitle("Female nvar distribution", subtitle = "On Target")
+    
+    plt.f.oft <- ggplot() +
+        geom_histogram(aes(x = nvar.f[!pool$target]), binwidth = 0.00025) +
+        coord_cartesian(xlim = c(0,0.1)) +
+        scale_x_continuous(breaks=seq(0, 1, 0.01)) +
+        theme_linedraw() +
+        theme(text = element_text(size=7.5)) +
+        xlab("Variance") +
+        ggtitle("Female nvar distribution", subtitle = "Off Target")
+    
+    plt.m.ont <- ggplot() +
+        geom_histogram(aes(x = nvar.m[pool$target]), binwidth = 0.00025) +
+        coord_cartesian(xlim = c(0,0.1)) +
+        scale_x_continuous(breaks=seq(0, 1, 0.01)) +
+        theme_linedraw() +
+        theme(text = element_text(size=7.5)) +
+        xlab("Variance") +
+        ggtitle("Male nvar distribution", subtitle = "On Target")
+    
+    plt.m.oft <- ggplot() +
+        geom_histogram(aes(x = nvar.m[!pool$target]), binwidth = 0.00025) +
+        coord_cartesian(xlim = c(0,0.1)) +
+        scale_x_continuous(breaks=seq(0, 1, 0.01)) +
+        theme_linedraw() +
+        theme(text = element_text(size=7.5)) +
+        xlab("Variance") +
+        ggtitle("Male nvar distribution", subtitle = "Off Target")
+    
+    plt <- arrangeGrob(plt.f.ont,plt.f.oft, plt.m.ont, plt.m.oft, nrow = 2)
+    return(plt)
+}
+
+
+## temporary function
+#'@export
+plotGCncovLr<- function(cnv, pooldata, opts) {
+    tmp = data.table()
+    if (cnv$sex == "female") {
+        cov.med = rowMedians(pooldata$female$cov,na.rm = T)
+    } else {
+        cov.med = rowMedians(pooldata$male$cov,na.rm = T)
+    }
+    tmp[,cov.noGCnorm := log2(cnv$tile$n.cov/cov.med)]
+    tmp[,cov.GCnorm :=.correctBias(log2(cnv$tile$n.cov/cov.med),pooldata$target,pooldata$hq,"gc",pooldata$gc,opts)]
+    tmp[,cov.off := cov.noGCnorm-cov.GCnorm]
+    tmp[,gc := cnv$tile$gc]
+    tmp = melt(tmp,id.vars = "gc")
+    
+    gc.plt <- ggplot(tmp) + aes(x=gc, y=value) +
+        facet_grid(.~variable) +
+        geom_point(alpha=0.05, size=0.1) +
+        coord_cartesian(xlim=c(0.25, 0.75), ylim=c(-3, 3)) +
+        ylab("log2(tumor/normal)") +
+        xlab("GC [%]") +
+        theme_pubr() +
+        scale_x_continuous(labels=scales::percent_format(accuracy = 1))
+    # geom_smooth(color = "blue",size = 1)
+    
+    return(gc.plt)
+}
+
+lr_compare = function(sample_number,cnv.fns, pool, chrs, opts) {
+    cnv = read_rds(cnv.fns[sample_number])
+    cnv$tile$filter = pool$female$filter
+    cnv$tile$reptime = pool$reptime
+    cnv <- addPoolLogRatio(cnv, pool, opts)
+    cnv <- addScaleLogRatio(cnv, opts)
+    cnv <- addBiasLogRatio(cnv, opts)
+    cnv <- addSmoothLogRatio(cnv, opts)
+    cnv <- addJointSegment(cnv, opts)
+    
+    cnv2 <- addPairLogRatio(cnv, opts)
+    cnv2 <- addScaleLogRatio(cnv2, opts)
+    cnv2 <- addBiasLogRatio(cnv2, opts)
+    cnv2 <- addSmoothLogRatio(cnv2, opts)
+    cnv2 <- addJointSegment(cnv2, opts)
+    
+    p1 = lr_plot(cnv,chr=chrs)+ggtitle(paste("pool_sample",sample_number))
+    p2 = lr_plot(cnv2,chr=chrs,start = )+ggtitle(paste("pair_sample",sample_number))
+    
+    grid.arrange(p1,p2)
+}
+
+addSeg = function(cnv){
+    seg_tiles <- queryHits(findOverlaps(cnv$tile,cnv$seg))
+    seg_ids <- subjectHits(findOverlaps(cnv$tile,cnv$seg))
+    cnv$tile$tad = NA_real_
+    cnv$tile$seg <- findOverlaps(cnv$tile,cnv$seg,select = "first")
+    # cnv$tile$seg <- rep(1,length(cnv$tile))
+    cnv$tile$seg = seg_ids
+    return(cnv)
+}
+
+#plot lr vs coordinates:
+lr_plot = function(file,chr = "all", value = "lr"){
+    file = addSeg(file)
+    if(chr == "all") {
+        chr = paste0("chr",c(1:22,"X","Y"))
+    }
+    if(is.null(file$tile$filter)) {
+        file$tile$filter = file$tile$hq
+    }
+    data = as.data.frame(file$tile) %>% dplyr::select(seqnames,start,end,t.cov,n.cov,lr,seg,arm,blacklist, filter)
+    data_seg = as.data.frame(file$seg) %>% mutate(seg = row_number()) %>% dplyr::select(-strand)
+    data = data %>% left_join(data_seg,by = "seg")
+    data = data %>% group_by(seg) %>% mutate(seg_lr = mean(lr,na.rm = T)) %>% ungroup()
+    data = data %>% group_by(seg) %>% mutate(seg_lr_med = median(lr,na.rm = T)) %>% ungroup()
+    data$blacklist = ifelse(data$blacklist > 0, 1,0)
+    if(value == "lr") {value = data$lr} else {
+        value = data$n.cov
+        data$seg_lr = 0}
+    data = data %>% mutate(val = value)
+    p = data %>% dplyr::filter(seqnames.x %in% chr) %>% ggplot()+
+        facet_grid(.~seqnames.x, scales="free_x")+
+        geom_point(size = 0.3,aes(x = start.x,y = val, color = as.factor(filter)))+
+        geom_segment(aes(x = start.y,xend = end.y,y = seg_lr,yend = seg_lr),colour = 'red')+
+        theme_linedraw()+
+        coord_cartesian(ylim = c(-3,3))+
+        geom_vline(xintercept = 1)
+    
+    return(p)
+}
+
+## testing segmentation changes
+testSegChanges <- function(seg.old,seg.new,tile, cnv, chr = "all") {
+    tile$seg.old = queryHits(findOverlaps(seg.old, tile, select="all"))
+    tile$seg.new = queryHits(findOverlaps(seg.new, tile, select="all"))
+    bp.old <- which(diff(tile$seg.old) == 1)
+    bp.new <- which(diff(tile$seg.new) == 1)
+    bp.diff <- bp.old[!(bp.old %in% bp.new)]
+    tile$removed <- FALSE
+    tile$removed[bp.diff] <- TRUE
+    segments.diff <- tile$seg.old[c(bp.diff,(bp.diff+1))]
+    
+    #plot lr vs coordinates:
+    cnv$tile$filter = cnv$tile$hq
+    file = cnv
+    file = addSeg(file)
+    if(chr == "all") {
+        chr = paste0("chr",c(1:22,"X","Y"))
+    }
+    data = as.data.frame(file$tile)
+    data_seg = as.data.frame(file$seg) %>% mutate(seg = row_number()) %>% dplyr::select(-strand)
+    data = data %>% left_join(data_seg,by = "seg")
+    data = data %>% group_by(seg) %>% mutate(seg_lr = mean(lr,na.rm = T)) %>% ungroup()
+    data = data %>% group_by(seg) %>% mutate(seg_lr_med = median(lr,na.rm = T)) %>% ungroup()
+    data$blacklist = ifelse(data$blacklist > 0, 1,0)
+    if(value == "lr") {val = data$lr} else {
+        val = data$n.cov
+        data$seg_lr = 0}
+    data = data %>% mutate(val = val)
+    p = data %>% dplyr::filter(seqnames.x %in% chr) %>% ggplot()+
+        facet_grid(.~seqnames.x, scales="free_x")+
+        geom_point(size = 0.3,aes(x = start.x,y = val, color = as.factor(filter)))+
+        geom_segment(aes(x = start.y,xend = end.y,y = seg_lr,yend = seg_lr),colour = 'red')+
+        theme_linedraw()+
+        coord_cartesian(ylim = c(-3,3))+
+        geom_vline(xintercept = 1)
+    vline.data = data.frame(z = data$start.x[bp.diff], seqnames.x = data$seqnames.x[bp.diff])
+    vline.data = vline.data %>% filter(seqnames.x %in% chr)
+    p2 = p+geom_vline(aes(xintercept = z),vline.data, color = "green", alpha = 0.4, size = 0.5)+ labs(caption = paste(as.character(nrow(vline.data)),"BP has been merged"))
+    return(p2)
+}
+```
+
