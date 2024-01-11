@@ -1010,6 +1010,7 @@ draw_lolli <- function(df, outline_chain = "black", fill_chain = "grey", label_c
   require(ggplot2)
   require(ggfittext)
   require(gridExtra)
+  require(datawizard)
   
   tmpDf <- df[df$type == "CHAIN", ]
   p <- ggplot() + ylim(c(0,1))
@@ -1136,7 +1137,6 @@ for (i in 1:length(hotspotCountTable)) {
 
 
 hgLolli <- draw_lolli(rel_data_hg_filt)
-
 
 
 ### for the mouse variants of the lollipop plot, I need to have mapped over amino acid coordinates
@@ -1349,16 +1349,20 @@ tmpGraphTbl2$dummyDomain <- tmpGraphTbl2$domainMatch
 tmpGraphTbl2$dummyDomain <- str_replace_all(tmpGraphTbl2$dummyDomain, "no", "0")
 tmpGraphTbl2$dummyDomain <- str_replace_all(tmpGraphTbl2$dummyDomain, "yes", "1")
 tmpGraphTbl2$dummyDomain <- str_replace_all(tmpGraphTbl2$dummyDomain, "mismatch", "2")
-tmpGraphTbl2$dummyDomain <- factor(tmpGraphTbl2$dummyDomain)
+tmpGraphTbl2$dummyDomain <- factor(tmpGraphTbl2$dummyDomain, levels = c(2, 0, 1))
 
 tmpGraphTbl2$dummyDesig <- tmpGraphTbl2$geneDesig
 tmpGraphTbl2$dummyDesig <- str_replace_all(tmpGraphTbl2$dummyDesig, "onco", "0")
 tmpGraphTbl2$dummyDesig <- str_replace_all(tmpGraphTbl2$dummyDesig, "tsg", "1")
 tmpGraphTbl2$dummyDesig <- factor(tmpGraphTbl2$dummyDesig)
 
+### second cutoff was needs matching and also greater than certain conservation score - modified z score cause of skewness
+tmpGraphTbl2$check2 <- ifelse(tmpGraphTbl2$conservationScore > 15.8 & tmpGraphTbl2$check == "yes", "yes", "no")
+
 ### swapped baseline from no, so OR increases make more sense 
 
 tmpGraphTbl2$check <- factor(tmpGraphTbl2$check, levels = c("no", "yes"))
+tmpGraphTbl2$check2 <- factor(tmpGraphTbl2$check2, levels = c("no", "yes"))
 
 oncokbPositionsAllHg38$string <- paste0(oncokbPositionsAllHg38$Hugo_Symbol, oncokbPositionsAllHg38$Protein_position, oncokbPositionsAllHg38$AminoAcid)
 oncokbPositionsRed$string <- paste0(oncokbPositionsRed$Hugo_Symbol, oncokbPositionsRed$Protein_position, oncokbPositionsRed$AminoAcid)
@@ -1370,7 +1374,8 @@ for (i in seq_along(oncokbPositionsRed$string)) {
 
 tmpGraphTbl2$count <- oncokbPositionsRed$count[match(tmpGraphTbl2$Hotspot, oncokbPositionsRed$string)]
 
-glmRes <- glm(data = tmpGraphTbl2, formula = check ~ conservationScore + count + dummyMutEff + dummyDomain + dummyDesig, family = binomial(link = "logit"))
+# glmRes <- glm(data = tmpGraphTbl2, formula = check ~ conservationScore + dummyMutEff + dummyDomain + dummyDesig, family = binomial(link = "logit"))
+glmRes <- glm(data = tmpGraphTbl2, formula = check2 ~ conservationScore + dummyMutEff + dummyDomain + dummyDesig, family = binomial(link = "logit"))
 
 summary(glmRes)
 
@@ -1381,8 +1386,9 @@ glmResRefit <- effectsize::standardize(glmRes, two_sd = TRUE, robust = TRUE)
 parameters::model_parameters(glmResRefit, exponentiate = TRUE)
 
 library(forestmodel)
+pdf(file = "/mnt/DATA5/tmp/kev/misc/20231205forestPlot.pdf", width = 12, height = 8, useDingbats = FALSE)
 forest_model(glmResRefit, exponentiate = TRUE)
-
+dev.off()
 ### interesting results from looking at both p-values and effect size for whether hotspots converted properly
 ### out of all the variables, how well the local area is conserved increases the likely hood of conversion the most i.e 4.36
 ### the next highest surprisingly is if the the mutation is gain of function with 2.78
@@ -1422,8 +1428,8 @@ ggboxplot(tmpGraphTbl3, y = "conservationScore", x = "geneDesig", outlier.shape=
 
 
 
-moreThan4 <- names(table(tmpGraphTbl$gene))[which(table(tmpGraphTbl$gene) > 4)]
-tmpGraphTblFilt <- tmpGraphTbl[which(tmpGraphTbl$gene %in%moreThan4),]
+moreThan4 <- names(table(tmpGraphTbl3$gene))[which(table(tmpGraphTbl3$gene) > 4)]
+tmpGraphTblFilt <- tmpGraphTbl3[which(tmpGraphTbl3$gene %in%moreThan4),]
 tsgInTable <- unique(tmpGraphTblFilt$gene)[which(unique(tmpGraphTblFilt$gene) %in% tsgList)]
 tmpGraphTblFilt_tsg <- tmpGraphTblFilt[which(tmpGraphTblFilt$gene %in% tsgInTable),]
 byMedTsg <- with(tmpGraphTblFilt_tsg, reorder(gene, conservationScore, median))
@@ -1488,4 +1494,150 @@ for (i in 1:length(hotspotCountTable_mm)) {
 colVector <- ifelse(resTblMane_filt_mm$check[match(names(hotspotCountTable_mm), resTblMane_filt_mm$ConvertedPosition)] == "yes", "darkblue", "darkred")
 notchLolli <- draw_lolli(rel_data_mm_filt, point_color = colVector)
 notchLolli
+
+
+
+### drawing newer plots with conservation score (y-axis) for PIK3CA - 
+### need to have distinguish between annotations  somehow
+### draw it on the human protein
+# df <- rel_data_hg_filt2
+draw_lolliV2 <- function(df, outline_chain = "black", fill_chain = "grey", label_chains = TRUE,
+                         label_size_chain = 4, point_color = NULL, label_domains = FALSE){
+  ### point color is vector with legnth of number of points - based on matching
+  
+  
+  ### this version I should make it so y axis is conservation score of each position
+  
+  require(ggplot2)
+  require(ggfittext)
+  require(gridExtra)
+  require(datawizard)
+  
+  tmpDf <- df[df$type == "CHAIN", ]
+  p <- ggplot() + ylim(c(0,1))
+  p <- p + xlim(-max(df$end, na.rm = TRUE) * 0.2, 
+                max(df$end, na.rm = TRUE) + max(df$end, na.rm = TRUE) * 
+                  0.1)
+  p <- p + geom_rect(aes(xmin = tmpDf$begin, xmax = tmpDf$end, ymin = 0.3, ymax = 0.7),
+                     color = outline_chain, fill = fill_chain) + 
+    theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+                       panel.grid.minor = element_blank(), axis.line = element_blank(),
+                       axis.ticks = element_blank(), axis.text = element_blank()) + xlab("") + ylab("")
+  
+  if (label_chains == TRUE) {
+    p <- p + annotate("text", x = -1, y = 0.5, label = tmpDf$entryName,
+                      hjust = 1, size = label_size_chain)
+  }
+  
+  tmpDf3 <- df[df$type == "LOLLIPOP", ]
+  ### adding one, since graph of yaxis of the lollipop technically is 1-based because of the domain figure and not 0-based
+  ### for lollipop I'm going to add the count to description as character, then make it as numeric. easiest way without adding another column
+  
+  if (as.numeric(tmpDf3$description[1]) == 0) {
+    tmpCount <- rep(as.numeric(tmpDf3$description[1]), nrow(tmpDf3))
+  } else{
+    tmpCount <- as.numeric(tmpDf3$description)
+  }
+  
+  ### need so factor so that the protein chain + domains all stay the same size between different graphs
+  ### the y-axis changes each depending on the data so it shrinks the protein graph portion
+  tmpCount2 <- rescale(tmpCount, to= c(1,11), from = c(0,max(tmpCount)))
+  if(!is.null(point_color)){
+    tmpCount2_color <- point_color
+  } else{
+    tmpCount2_color <- rep("black", length(tmpCount2))
+  }
+  tmpDf3$taxid <- factor(tmpDf3$taxid)
+  tmpDf3$taxid <- relevel(tmpDf3$taxid, ref =c("Unknown"))
+  
+  p <- p + geom_segment(aes(x = tmpDf3$begin, xend = tmpDf3$end, y = rep(0.7, length(tmpCount2)), yend = tmpCount2),
+                        color = rep("grey", length(tmpDf3$begin)), alpha = 0.3) +
+    geom_point(aes(x = tmpDf3$begin, y = tmpCount2, shape = tmpDf3$taxid), alpha = 0.7,size = 3, color = tmpCount2_color) + 
+    scale_y_continuous(limits=c(0, 11))
+  
+  
+  tmpDf2 <- df[df$type == "DOMAIN", ]
+  p <- p + geom_rect(mapping = aes(xmin = tmpDf2$begin, xmax = tmpDf2$end, ymin = 0.1, ymax = 0.9, fill = tmpDf2$description),
+                     show.legend = FALSE)
+  
+  if (label_domains == TRUE) {
+    p <- p + geom_fit_text(aes(xmin = tmpDf2$begin, xmax = tmpDf2$end, ymin = rep(0.21, length(tmpDf2$end)), ymax = rep(0.79, length(tmpDf2$end)), 
+                               label = tmpDf2$description))
+  }
+  
+  
+  ### adding custom x and y axes, not using different grobs b/c this is inset in graph not bordering it
+  p <- p + geom_segment(aes(x = 0, xend = 0, y = 0.9, yend = max(tmpCount2))) +
+    geom_segment(aes(x = -max(df$end, na.rm = TRUE) * 0.01, xend = 0, y = 0.9, yend = 0.9)) + 
+    geom_segment(aes(x = -max(df$end, na.rm = TRUE) * 0.01, xend = 0, y = max(tmpCount2), yend = max(tmpCount2))) +
+    annotate("text", x = -max(df$end, na.rm = TRUE) * 0.01, y = max(tmpCount2), label = max(tmpCount), vjust = -1, hjust = 1) + 
+    annotate("text", x = -max(df$end, na.rm = TRUE) * 0.01, y = 0.9, label = 0, vjust = -1, hjust = 2)
+  
+  
+  p <- p + geom_segment(aes(x = 0, xend = max(tmpDf$end), y = 0, yend = 0)) +
+    annotate("text", x = 0, y = 0, label = paste0(0, "aa"), hjust = 1.5) + 
+    annotate("text", x = max(tmpDf$end), y = 0, label = paste0(max(tmpDf$end), "aa"), hjust = -0.5)
+  
+  
+  return(p)
+}
+
+
+
+pik3caPositions <- oncokbPositions[which(oncokbPositions$Hugo_Symbol == "EGFR"),]
+hgPik3caEnsId <- unique(tmpGraphTblFilt$originalEns[which(tmpGraphTblFilt$gene == "EGFR")])
+hgProtId <- uniprotWsTableHg38$Entry[which(uniprotWsTableHg38$From == hgPik3caEnsId)]
+hgDomainMatch <- interproDomaninsHg[grep(hgPik3caEnsId, interproDomaninsHg$V1),]
+drawProteins::get_features(hgProtId) -> rel_json_hg
+drawProteins::feature_to_dataframe(rel_json_hg) -> rel_data_hg
+rel_data_hg_filt <- rel_data_hg[which(rel_data_hg$type %in% "CHAIN"),]
+rel_data_hg_filt$begin <- 1
+rel_data_hg_filt <- rbind(rel_data_hg_filt, data.frame("type" = rep("DOMAIN", nrow(hgDomainMatch)),
+                                                       "description" = hgDomainMatch$V6,
+                                                       "begin" = hgDomainMatch$V7, "end" = hgDomainMatch$V8,
+                                                       "length" = hgDomainMatch$V8 - hgDomainMatch$V7,
+                                                       "accession" = rep(rel_data_hg_filt$accession, nrow(hgDomainMatch)),
+                                                       "entryName" = rep(rel_data_hg_filt$entryName, nrow(hgDomainMatch)),
+                                                       "taxid" = rep(rel_data_hg_filt$taxid, nrow(hgDomainMatch)),
+                                                       "order" = rep(rel_data_hg_filt$order, nrow(hgDomainMatch))))
+
+
+resTblMane_filt_hg <- tmpGraphTblFilt[which(tmpGraphTblFilt$originalEns == hgPik3caEnsId),
+                                      c("conservationScore", "OriginalPosition", "ConvertedPosition", "check2", "MutEff")]
+ 
+rel_data_hg_filt2 <- rel_data_hg_filt
+for (i in 1:nrow(resTblMane_filt_hg)) {
+  rel_data_hg_filt2 <- rbind(rel_data_hg_filt2, data.frame("type" = "LOLLIPOP", "description" = as.character(resTblMane_filt_hg$conservationScore[i]),
+                                                         "begin" = as.numeric(resTblMane_filt_hg$OriginalPosition[i]),
+                                                         "end" =  as.numeric(resTblMane_filt_hg$OriginalPosition[i]),
+                                                         "length" = 1, "accession" = rel_data_hg_filt2$accession[1],
+                                                         "entryName" = rel_data_hg_filt2$entryName[1],
+                                                         "taxid" = resTblMane_filt_hg$MutEff[i],
+                                                         order = rel_data_hg_filt2$order[1]))
+}
+
+colVector <- ifelse(resTblMane_filt_hg$check2 == "yes", "darkred", "darkblue")
+pik3caLolli <- draw_lolliV2(rel_data_hg_filt2, point_color = colVector)
+pik3caLolli
+
+pdf("/mnt/DATA5/tmp/kev/misc/20231207newLollipop.pdf", useDingbats = FALSE, width = 12, height = 6)
+pik3caLolli
+dev.off()
+
+### need to redo the proportion of conversion results, could be yes, but spurious
+### look at  violin plot to see if there is a cutoff for good vs spurious
+### data is extremely negatively skewed; so z-scores would be useless; use modified z-score 3.5 cutoff
+
+quantile(tmpGraphTbl3$conservationScore, seq(0, 1, 0.01))
+
+median(tmpGraphTbl3$conservationScore)
+mad(tmpGraphTbl3$conservationScore)
+
+tmpGraphTbl3$modZScore <- (0.6745 * (tmpGraphTbl3$conservationScore - median(tmpGraphTbl3$conservationScore))/mad(tmpGraphTbl3$conservationScore))
+max(tmpGraphTbl3$conservationScore[which(tmpGraphTbl3$modZScore < -3.5)])
+### 15.8 minimum - with the new minimum, I need to redo forest plot
+
+### number of correct conversions based on the second check and cutoff 
+nrow(tmpGraphTbl2)
+table(tmpGraphTbl2$check2)
 

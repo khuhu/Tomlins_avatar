@@ -50,6 +50,14 @@ dev.off()
 
 
 
+dev.off()
+pdf("/mnt/DATA5/tmp/kev/misc/20231207mca1v2.pdf", useDingbats = FALSE, width = 8, height = 8)
+plot.MCA(snp_mca, axes = c(1,2), invisible = "var", xlim = c(-1.5,1.5), ylim = c(-1.5,1.5), cex = 2, cex.axis = 2)
+dev.off()
+pdf("/mnt/DATA5/tmp/kev/misc/20231207mca3v4.pdf", useDingbats = FALSE)
+plot.MCA(snp_mca, axes = c(3,4), invisible = "var", xlim = c(-1.5,1.5), ylim = c(-1.5,1.5), cex = 2, cex.axis = 2)
+dev.off()
+
 ### from the look of the things Dim 1 + 2 separates into 3 groups 129, C57Bl6, and (FVB + BALB + C3H); Dim 3 specifically separates the 3 group cluster
 ### seems like 2 is the least important .. but we'll see if this changes with different combinations
 
@@ -103,7 +111,7 @@ admixture500_small_melt$strain<- as.character(admixture500_small_melt$strain)
 colnames(admixture500_small_melt)[2:3] <- c("strain", "fraction")
 fulladmixture500 <- admixture500_small_melt
 
-colPalette <- c("#009E73","#D55E00", "#8b0000", "#800080", "#ffff00")
+colPalette <- c("#009E73","#D55E00", "#8b0000", "#800080", "#8B8000")
 
 keepSamples <- c("129_6NJ_5050", "129_BALB_5050", "129_C3H_5050", "129_FVB_5050",
                  "129_SRA_5050", "6NJ_FVB_5050", "BALB_6NJ_5050",
@@ -118,16 +126,29 @@ fulladmixture500 <- fulladmixture500[which(fulladmixture500$sample %in% keepSamp
 a <- ggplot(fulladmixture1000, aes(x = sample, y = fraction, fill=strain)) +
   geom_bar(position="fill", stat="identity", color = "black") + 
   scale_fill_manual(values=colPalette) + theme_bw() + ggtitle("1000 SNPs") + 
-  theme(axis.text.x=element_text(angle=90,hjust=1), plot.title = element_text(hjust = 0.5))
+  theme(axis.text.x=element_text(angle=90,hjust=1, size = 15),
+        axis.text.y=element_text(size = 15),
+        plot.title = element_text(hjust = 0.5))
 
 
 b <- ggplot(fulladmixture500, aes(x = sample, y = fraction, fill=strain)) +
   geom_bar(position="fill", stat="identity", color = "black") + 
   scale_fill_manual(values=colPalette) + theme_bw() +  ggtitle("500 SNPs") +
-  theme(axis.text.x=element_text(angle=90,hjust=1), plot.title = element_text(hjust = 0.5))
+  theme(axis.text.x=element_text(angle=90,hjust=1, size = 15),
+        axis.text.y=element_text(size = 15),
+        plot.title = element_text(hjust = 0.5))
 
 grid.arrange(a,b, nrow = 2)
 
+
+
+dev.off()
+pdf("/mnt/DATA5/tmp/kev/misc/20231207mca1000Snps.pdf", useDingbats = FALSE, width = 14, height = 8)
+a
+dev.off()
+pdf("/mnt/DATA5/tmp/kev/misc/20231207mca500Snps.pdf", useDingbats = FALSE, width = 14, height = 8)
+b
+dev.off()
 
 # colLabels <- c("129S1_SvImJ", "BALB", "C3H_HeJ", "FVB", "C57Bl_6J")
 

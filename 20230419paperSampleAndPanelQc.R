@@ -935,7 +935,8 @@ sampleNames2[which(sampleNames2 =="14150rt" )] <- "14150lt"
 sampleNames2[which(sampleNames2 =="14154rot" )] <- "14154lt"
 sampleNames2[which(sampleNames2 =="14656peritonealmt" )] <- "14656peritnealmt"
 
-segResFilt3 <- segResFilt2[which(segResFilt2$ID %in% sampleNames2), ]
+segResFilt3 <- segRes2[which(segRes2$ID %in% sampleNames2), ]
+# segResFilt3 <- segResFilt2[which(segResFilt2$ID %in% sampleNames2), ]
 segResFilt3$chrom <- paste0("chr", segResFilt3$chrom)
 segResFilt3$size <- segResFilt3$loc.end - segResFilt3$loc.start
 noshadAneploidySub <- matrix(0, nrow = length(unique(sampleNames2)), ncol = length(unique(segResFilt3$chrom)))
@@ -1064,7 +1065,8 @@ allGrange <- GRanges(seqnames = tmpGrange5$chr,
 
 library(GenomicRanges)
 
-allNgsDis <- disjoin(GRanges(seqnames = paste0("chr", segResFilt2$chrom), IRanges(start = segResFilt2$loc.start, end = segResFilt2$loc.end)))
+# allNgsDis <- disjoin(GRanges(seqnames = paste0("chr", segResFilt2$chrom), IRanges(start = segResFilt2$loc.start, end = segResFilt2$loc.end)))
+allNgsDis <- disjoin(GRanges(seqnames = paste0("chr", segRes2$chrom), IRanges(start = segRes2$loc.start, end = segRes2$loc.end)))
 disjoinRanges <- disjoin(allGrange)
 allNgsDisOverlap <- allNgsDis[unique(subjectHits(findOverlaps(disjoinRanges, allNgsDis))),]
 
@@ -1202,13 +1204,13 @@ for (i in c(0:4)) {
   tmp10Mb <- data.frame(mm10_10MbGr[which(mm10_10Mb$markerCount > i)])
   tmp20Mb <- data.frame(mm10_10MbGr[which(mm10_20Mb$markerCount > i)])
   
-  write.table(tmp1Mb, paste0("/mnt/DATA5/tmp/kev/misc/20230606mm10_", i, "_1Mb.bed"), sep = "\t",
+  write.table(tmp1Mb, paste0("/mnt/DATA5/tmp/kev/misc/20230907mm10_", i, "_1Mb.bed"), sep = "\t",
               col.names = FALSE, row.names = FALSE, quote = FALSE)
-  write.table(tmp5Mb, paste0("/mnt/DATA5/tmp/kev/misc/20230606mm10_", i, "_5Mb.bed"), sep = "\t",
+  write.table(tmp5Mb, paste0("/mnt/DATA5/tmp/kev/misc/20230907mm10_", i, "_5Mb.bed"), sep = "\t",
               col.names = FALSE, row.names = FALSE, quote = FALSE)
-  write.table(tmp10Mb, paste0("/mnt/DATA5/tmp/kev/misc/20230606mm10_", i, "_10Mb.bed"), sep = "\t",
+  write.table(tmp10Mb, paste0("/mnt/DATA5/tmp/kev/misc/20230907mm10_", i, "_10Mb.bed"), sep = "\t",
               col.names = FALSE, row.names = FALSE, quote = FALSE)
-  write.table(tmp20Mb, paste0("/mnt/DATA5/tmp/kev/misc/20230606mm10_", i, "_20Mb.bed"), sep = "\t",
+  write.table(tmp20Mb, paste0("/mnt/DATA5/tmp/kev/misc/20230907mm10_", i, "_20Mb.bed"), sep = "\t",
               col.names = FALSE, row.names = FALSE, quote = FALSE)
 }
 
@@ -1228,14 +1230,16 @@ tmpDf4n <- allAscatSegs_filt2[which(allAscatSegs_filt2$ploidy == 4), ]
 i <- 1
 j <- 1
 allCnaStatsDf2 <- NULL
+allCnaStatsDf2_ck <- NULL
 for (i in c(1, 5, 10, 20)) {
   
   for (j in c(0:4)) {
     ### read in tables after they've gone through bedtools
-    tmpDisJoin <- read.table(paste0("/mnt/DATA5/tmp/kev/misc/20230606ngsInter_", j, "_", i, "Mb.bed"),
+    # tmpDisJoin <- read.table(paste0("/mnt/DATA5/tmp/kev/misc/20230606ngsInter_", j, "_", i, "Mb.bed"),
+    #                          sep = "\t", header = FALSE, stringsAsFactors = FALSE)
+    tmpDisJoin <- read.table(paste0("/mnt/DATA5/tmp/kev/misc/20230907ngsInter_", j, "_", i, "Mb.bed"),
                              sep = "\t", header = FALSE, stringsAsFactors = FALSE)
     
-    # colnames(tmpDisJoin) <- colnames(ngsDisjoinBed)
     colnames(tmpDisJoin) <- c("chrom", "start", "end","sample", "seg.mean", "str", "size")
     
     tmpDisJoinAneuploidy <- matrix(0, nrow = length(unique(sampleNames2)), ncol = length(unique(segResFilt3$chrom)))
@@ -1252,12 +1256,12 @@ for (i in c(1, 5, 10, 20)) {
         tmpChr2 <- tmpChr
         chrThres <- sum(tmpChr$size) * 0.7
         tmpAneu <- "none"
-        if (sum(tmpChr$size[which(tmpChr$seg.mean > 0.3)]) > chrThres) {
+        if (sum(tmpChr$size[which(tmpChr$seg.mean > 0.2)]) > chrThres) {
           tmpAneu <- "gain"
-          tmpChr2$seg.mean[which(tmpChr2$seg.mean > 0.3)] <- 0
-        } else if(sum(tmpChr$size[which(tmpChr$seg.mean < -0.4)]) > chrThres){
+          tmpChr2$seg.mean[which(tmpChr2$seg.mean > 0.2)] <- 0
+        } else if(sum(tmpChr$size[which(tmpChr$seg.mean < -0.2)]) > chrThres){
           tmpAneu <- "loss"
-          tmpChr2$seg.mean[which(tmpChr2$seg.mean < -0.4)] <- 0
+          tmpChr2$seg.mean[which(tmpChr2$seg.mean < -0.2)] <- 0
         } else{
           tmpAneu <- "none"
         }
@@ -1269,21 +1273,20 @@ for (i in c(1, 5, 10, 20)) {
     ### commented out to compare good samples to all
     
     tmpGood <- tmpDisJoinAneuploidy[which(rownames(tmpDisJoinAneuploidy) %in% goodSamps), 1:19]
-    # tmpGood <- tmpDisJoinAneuploidy[, 1:19]
     tmpGoodVec <- as.vector(tmpGood)
-    tmpGoodVec <- factor(tmpGoodVec, levels = c("none", "gain", "loss"))
+    tmpGoodVec <- factor(tmpGoodVec, levels = c("gain", "none", "loss"))
     # 
-    goodAscatVec2n <- factor(ascatAneploidy2n[which(rownames(ascatAneploidy2n) %in% goodSamps), ], levels = c("none", "gain", "loss"))
-    goodAscatVec3n <- factor(ascatAneploidy3n[which(rownames(ascatAneploidy3n) %in% goodSamps), ], levels = c("none", "gain", "loss"))
-    goodAscatVec4n <- factor(ascatAneploidy4n[which(rownames(ascatAneploidy4n) %in% goodSamps), ], levels = c("none", "gain", "loss"))
-
-    # goodAscatVec2n <- factor(ascatAneploidy2n, levels = c("none", "gain", "loss"))
-    # goodAscatVec3n <- factor(ascatAneploidy3n, levels = c("none", "gain", "loss"))
-    # goodAscatVec4n <- factor(ascatAneploidy4n, levels = c("none", "gain", "loss"))
-    # 
+    goodAscatVec2n <- factor(ascatAneploidy2n[which(rownames(ascatAneploidy2n) %in% goodSamps), ], levels = c("gain", "none", "loss"))
+    goodAscatVec3n <- factor(ascatAneploidy3n[which(rownames(ascatAneploidy3n) %in% goodSamps), ], levels = c("gain", "none", "loss"))
+    goodAscatVec4n <- factor(ascatAneploidy4n[which(rownames(ascatAneploidy4n) %in% goodSamps), ], levels = c("gain", "none", "loss"))
+    
     goodConMat2n_pr <- confusionMatrix(tmpGoodVec, reference = goodAscatVec2n, mode = "prec_recall")
     goodConMat3n_pr <- confusionMatrix(tmpGoodVec, reference = goodAscatVec3n, mode = "prec_recall")
     goodConMat4n_pr <- confusionMatrix(tmpGoodVec, reference = goodAscatVec4n, mode = "prec_recall")
+    
+    goodConMat2n_ck <- irr::kappa2(cbind(tmpGoodVec, goodAscatVec2n), weight = "squared")
+    goodConMat3n_ck <- irr::kappa2(cbind(tmpGoodVec, goodAscatVec3n), weight = "squared")
+    goodConMat4n_ck <- irr::kappa2(cbind(tmpGoodVec, goodAscatVec4n), weight = "squared")
     
     ### comment out for all samples
     tmp_cna <-  tmp_cna[which(tmp_cna$sample %in% goodSamps), ]
@@ -1323,7 +1326,7 @@ for (i in c(1, 5, 10, 20)) {
     }
     
     if (length(which(tmp_cna2$seg.mean != 0)) == 0) {
-     next() 
+      next() 
     }
     
     
@@ -1419,9 +1422,71 @@ for (i in c(1, 5, 10, 20)) {
                                         reference = factor(tmpAscatCna$type[which(tmpAscatCna$size > 20e6)], levels = c("none", "gain", "loss")),
                                         mode = "prec_recall")
       
-      tmpCnaStatsDf <- NULL
+      ### cohen's kappa - treating these as nominal - 
       
-      goodConMat2n_pr
+      # tmpLess1Mb_ck <- tryCatch(psych::cohen.kappa(cbind(tmpAscatCna$type[which(tmpAscatCna$size < 1e6)],
+      #                                                    tmp_cna3$type[which(tmpAscatCna$size < 1e6)])),
+      #                           error = function(w) print(NA))
+      # 
+      # tmpGreater1Mb_ck <- tryCatch(psych::cohen.kappa(cbind(tmpAscatCna$type[which(tmpAscatCna$size > 1e6)],
+      #                                                       tmp_cna3$type[which(tmpAscatCna$size > 1e6)])),
+      #                              error = function(w) print(NA))
+      # 
+      # tmpGreater5Mb_ck <- tryCatch(psych::cohen.kappa(cbind(tmpAscatCna$type[which(tmpAscatCna$size > 5e6)],
+      #                                                       tmp_cna3$type[which(tmpAscatCna$size > 5e6)])),
+      #                              error = function(w) print(NA))
+      # 
+      # tmpGreater10Mb_ck <-tryCatch(psych::cohen.kappa(cbind(tmpAscatCna$type[which(tmpAscatCna$size > 1e7)],
+      #                                                       tmp_cna3$type[which(tmpAscatCna$size > 1e7)])),
+      #                              error = function(w) print(NA))
+      # 
+      # tmpGreater20Mb_ck <- tryCatch(psych::cohen.kappa(cbind(tmpAscatCna$type[which(tmpAscatCna$size > 2e7)],
+      #                                                        tmp_cna3$type[which(tmpAscatCna$size > 2e7)])),
+      #                               error = function(w) print(NA))
+      
+      ### switch to quadratic for difference in importance for getting none change to gain or loss vs gain to loss
+      
+      tmpLess1Mb_ck <- tryCatch(irr::kappa2(cbind(factor(tmp_cna3$type[which(tmpAscatCna$size < 1e6)], levels = c( "gain", "none","loss")),
+                                                  factor(tmpAscatCna$type[which(tmpAscatCna$size < 1e6)], levels = c("gain", "none", "loss"))),
+                                            weight = "squared"), error = function(w) print(NA))
+      
+      tmpGreater1Mb_ck <- tryCatch(irr::kappa2(cbind(factor(tmp_cna3$type[which(tmpAscatCna$size > 1e6)], levels = c( "gain", "none","loss")),
+                                                     factor(tmpAscatCna$type[which(tmpAscatCna$size > 1e6)], levels = c("gain", "none", "loss"))),
+                                               weight = "squared"), error = function(w) print(NA))
+      
+      tmpGreater5Mb_ck <- tryCatch(irr::kappa2(cbind(factor(tmp_cna3$type[which(tmpAscatCna$size > 5e6)], levels = c( "gain", "none","loss")),
+                                                     factor(tmpAscatCna$type[which(tmpAscatCna$size > 5e6)], levels = c("gain", "none", "loss"))),
+                                               weight = "squared"), error = function(w) print(NA))
+      
+      tmpGreater10Mb_ck <- tryCatch(irr::kappa2(cbind(factor(tmp_cna3$type[which(tmpAscatCna$size > 1e7)], levels = c( "gain", "none","loss")),
+                                                      factor(tmpAscatCna$type[which(tmpAscatCna$size > 1e7)], levels = c("gain", "none", "loss"))),
+                                                weight = "squared"), error = function(w) print(NA))
+      
+      tmpGreater20Mb_ck <- tryCatch(irr::kappa2(cbind(factor(tmp_cna3$type[which(tmpAscatCna$size > 2e7)], levels = c( "gain", "none","loss")),
+                                                      factor(tmpAscatCna$type[which(tmpAscatCna$size > 2e7)], levels = c("gain", "none", "loss"))),
+                                                weight = "squared"), error = function(w) print(NA))
+      
+      
+      if (is.na(tmpGreater1Mb_ck)) {
+        tmpGreater1Mb_ck <- tmpLess1Mb_ck
+        tmpGreater1Mb_ck$value <- NA
+      }
+      if (is.na(tmpGreater5Mb_ck)) {
+        tmpGreater5Mb_ck <- tmpLess1Mb_ck
+        tmpGreater5Mb_ck$value <- NA
+      }
+      if (is.na(tmpGreater10Mb_ck)) {
+        tmpGreater10Mb_ck <- tmpLess1Mb_ck
+        tmpGreater10Mb_ck$value <- NA
+      }
+      if (is.na(tmpGreater20Mb_ck)) {
+        tmpGreater20Mb_ck <- tmpLess1Mb_ck
+        tmpGreater20Mb_ck$value <- NA
+      }
+      
+      
+      tmpCnaStatsDf <- NULL
+      tmpCnaStatsDf_ck <- NULL
       
       tmpCnaStatsDf <- rbind(tmpCnaStatsDf,
                              data.frame("type" = rep("aneuploidy", 3), "change"  = rownames(eval(parse(text = paste0("goodConMat", q,"n", "_pr")))$byClass),
@@ -1431,15 +1496,30 @@ for (i in c(1, 5, 10, 20)) {
                              data.frame("type" = rep(">5Mb", 3), "change"  = rownames(tmpGreater5Mb$byClass), tmpGreater5Mb$byClass),
                              data.frame("type" = rep(">10Mb", 3), "change"  = rownames(tmpGreater10Mb$byClass), tmpGreater10Mb$byClass),
                              data.frame("type" = rep(">20Mb", 3), "change"  = rownames(tmpGreater20Mb$byClass), tmpGreater20Mb$byClass))
+      
+      tmpCnaStatsDf_ck <- rbind(data.frame("type" = "aneuploidy", "kappa" = eval(parse(text = paste0("goodConMat", q,"n", "_ck")))$value),
+                                data.frame("type" = "<1Mb", "kappa" = tmpLess1Mb_ck$value),
+                                data.frame("type" = ">1Mb", "kappa" = tmpGreater1Mb_ck$value),
+                                data.frame("type" = ">5Mb", "kappa" = tmpGreater5Mb_ck$value),
+                                data.frame("type" = ">10Mb", "kappa" = tmpGreater10Mb_ck$value),
+                                data.frame("type" = ">20Mb", "kappa" = tmpGreater20Mb_ck$value))
+      
       tmpCnaStatsDf$windowSize <- paste0(i, "Mb")
       tmpCnaStatsDf$ploidy <- paste0(q, "n")
       tmpCnaStatsDf$markerFilt <- j
+      tmpCnaStatsDf_ck$windowSize <- paste0(i, "Mb")
+      tmpCnaStatsDf_ck$ploidy <- paste0(q, "n")
+      tmpCnaStatsDf_ck$markerFilt <- j
+      
       allCnaStatsDf2 <- rbind(allCnaStatsDf2, tmpCnaStatsDf)
+      allCnaStatsDf2_ck <- rbind(allCnaStatsDf2_ck, tmpCnaStatsDf_ck)
+      
     }
   }
 }
 
 allCnaStatsDf2_goodSamps <- allCnaStatsDf2
+allCnaStatsDf2ck_goodSamps <- allCnaStatsDf2_ck
 
 ### doing it with all variables
 
@@ -1454,6 +1534,23 @@ mixedPlot <- ggplot(allCnaStatsDf3, aes(x = type, y = F1)) + geom_boxplot() +
                                "5Mb" = "darkblue",
                                "10Mb" = "darkorange",
                                "20Mb" = "purple")) 
+
+allCnaStatsDf2ck_goodSamps$type <- factor(allCnaStatsDf2ck_goodSamps$type,
+                                          levels = c("aneuploidy", ">20Mb", ">10Mb", ">5Mb", ">1Mb", "<1Mb"))
+allCnaStatsDf2ck_goodSamps$markerFilt <- factor(allCnaStatsDf2ck_goodSamps$markerFilt)
+allCnaStatsDf2ck_goodSamps$windowSize <- factor(allCnaStatsDf2ck_goodSamps$windowSize,
+                                                levels = c("1Mb", "5Mb", "10Mb", "20Mb"))
+
+
+mixedPlot_ck <- ggplot(allCnaStatsDf2ck_goodSamps, aes(x = type, y = kappa)) + geom_boxplot() + 
+  geom_point(aes(shape = markerFilt, color = windowSize), position=position_jitterdodge(jitter.width = 4, dodge.width = 0)) +
+  facet_wrap(~ploidy, ncol = 3) + 
+  scale_color_manual(values = c("1Mb" = "darkred",
+                                "5Mb" = "darkblue",
+                                "10Mb" = "darkorange",
+                                "20Mb" = "purple")) 
+
+
 
 ### choosing the best performing ones and then comparing below
 
@@ -1493,6 +1590,37 @@ grid.arrange(a3_5_R, a3_5_P,
              a3_10_R, a3_10_P,
              a4_20_R, a4_20_P,
              nrow = 3)
+
+
+### same but just doing on graph for the highest quadratic weighted cohen's kappa
+
+
+allCnaStatsDf3ck_goodSamps <- allCnaStatsDf2ck_goodSamps[which(allCnaStatsDf2ck_goodSamps$markerFilt == 2 & allCnaStatsDf2ck_goodSamps$windowSize == "5Mb"), ]
+allCnaStatsDf3ck_goodSamps$type <- factor(allCnaStatsDf3ck_goodSamps$type, levels = c("aneuploidy", ">20Mb", ">10Mb", ">5Mb", ">1Mb", "<1Mb"))
+a2_5_ck <- ggplot(allCnaStatsDf3ck_goodSamps, aes(x = type, y = kappa)) + 
+  geom_bar(aes(fill = ploidy), stat = "identity", position = position_dodge(width = 0.9), color = "black") +
+  ggtitle("Marker >= 2 with 5Mb Window Recall") + ylim(0,1) + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+allCnaStatsDf3ck_goodSamps <- allCnaStatsDf2ck_goodSamps[which(allCnaStatsDf2ck_goodSamps$markerFilt == 1 & allCnaStatsDf2ck_goodSamps$windowSize == "10Mb"), ]
+allCnaStatsDf3ck_goodSamps$type <- factor(allCnaStatsDf3ck_goodSamps$type, levels = c("aneuploidy", ">20Mb", ">10Mb", ">5Mb", ">1Mb", "<1Mb"))
+a1_10_ck <- ggplot(allCnaStatsDf3ck_goodSamps, aes(x = type, y = kappa)) + 
+  geom_bar(aes(fill = ploidy), stat = "identity", position = position_dodge(width = 0.9), color = "black") +
+  ggtitle("Marker >= 1 with 10Mb Window Recall") + ylim(0,1) + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+allCnaStatsDf3ck_goodSamps <- allCnaStatsDf2ck_goodSamps[which(allCnaStatsDf2ck_goodSamps$markerFilt == 2 & allCnaStatsDf2ck_goodSamps$windowSize == "10Mb"), ]
+allCnaStatsDf3ck_goodSamps$type <- factor(allCnaStatsDf3ck_goodSamps$type, levels = c("aneuploidy", ">20Mb", ">10Mb", ">5Mb", ">1Mb", "<1Mb"))
+a2_10_ck <- ggplot(allCnaStatsDf3ck_goodSamps, aes(x = type, y = kappa)) + 
+  geom_bar(aes(fill = ploidy), stat = "identity", position = position_dodge(width = 0.9), color = "black") +
+  ggtitle("Marker >= 2 with 10Mb Window Recall") + ylim(0,1) + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+grid.arrange(a2_5_ck,
+             a1_10_ck,
+             a2_10_ck,
+             nrow = 3)
+
 
 
 ### also change windowSize in the df to total genome size the windowed filter covers
